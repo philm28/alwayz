@@ -99,15 +99,22 @@ export function SocialMediaImport({ personaId, onImportComplete }: SocialMediaIm
   };
 
   const authenticatePlatform = async (platformId: string) => {
-    setShowAuthModal(platformId);
-    
-    // Simulate OAuth flow
-    // In production, this would redirect to the platform's OAuth endpoint
-    setTimeout(() => {
+    try {
+      setShowAuthModal(platformId);
+      
+      // Get OAuth URL for the platform
+      const { getOAuthUrl } = await import('../utils/socialMediaAPI');
+      const redirectUri = `${window.location.origin}/oauth/callback`;
+      const oauthUrl = getOAuthUrl(platformId, redirectUri);
+      
+      // Redirect to OAuth page
+      window.location.href = oauthUrl;
+    } catch (error) {
+      console.error('OAuth error:', error);
       setShowAuthModal(null);
-      // Mark platform as authenticated
-      console.log(`Authenticated with ${platformId}`);
-    }, 2000);
+      // Show error message to user
+      alert(`OAuth not configured for ${platformId}. Please check your environment variables.`);
+    }
   };
 
   const simulateDataScraping = async (platform: string): Promise<ImportJob> => {

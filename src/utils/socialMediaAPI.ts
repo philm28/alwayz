@@ -66,7 +66,7 @@ export function getOAuthUrl(platform: string, redirectUri: string): string {
   const scope = scopes[platform as keyof typeof scopes];
 
   if (!baseUrl || !clientId) {
-    throw new Error(`OAuth configuration not found for platform: ${platform}`);
+    throw new Error(`OAuth not configured for ${platform}. Please add VITE_${platform.toUpperCase()}_CLIENT_ID to your environment variables.`);
   }
 
   const params = new URLSearchParams({

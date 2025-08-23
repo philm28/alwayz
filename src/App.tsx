@@ -19,6 +19,7 @@ import { SupabaseConnectionTest } from './components/SupabaseConnectionTest';
 import { SupabaseStorageTest } from './components/SupabaseStorageTest';
 import { TemporaryLogin } from './components/TemporaryLogin';
 import { OpenAIStatus } from './components/OpenAIStatus';
+import { OAuthCallback } from './components/OAuthCallback';
 import { initializeMonitoring, setUserContext } from './lib/monitoring';
 import { initializeAnalytics, trackPageView } from './lib/analytics';
 import { emailService } from './lib/email';
@@ -751,6 +752,20 @@ function App() {
             onEndCall={() => setCurrentView('dashboard')}
           />
         ) : <LandingPage />;
+      case 'oauth-callback':
+        return (
+          <OAuthCallback
+            onSuccess={(platform, token) => {
+              console.log(`Successfully connected to ${platform}`);
+              setCurrentView('persona-setup');
+            }}
+            onError={(error) => {
+              console.error('OAuth error:', error);
+              setCurrentView('persona-setup');
+            }}
+            onCancel={() => setCurrentView('persona-setup')}
+          />
+        );
       default:
         return <LandingPage />;
     }
