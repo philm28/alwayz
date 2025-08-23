@@ -128,9 +128,67 @@ export function PersonaTraining({ personaId, onTrainingComplete }: PersonaTraini
       prev.map(step => ({ ...step, status: 'pending', progress: 0 }))
     );
 
-    // Simulate training steps sequentially
-    for (const step of trainingSteps) {
-      await simulateTrainingStep(step.id, Math.random() * 3000 + 2000); // 2-5 seconds per step
+    try {
+      // Get uploaded content for this persona
+      const { data: content } = await supabase
+        .from('persona_content')
+        .select('*')
+        .eq('persona_id', personaId);
+
+      // If we have OpenAI configured and content, do real training
+      if (import.meta.env.VITE_OPENAI_API_KEY && content && content.length > 0) {
+        console.log('Starting real AI training with OpenAI...');
+        
+        // Import AI training function
+        const { trainPersonaFromContent } = await import('../lib/ai');
+        
+        // Run actual training steps with real AI analysis
+        for (let i = 0; i < trainingSteps.length; i++) {
+          const step = trainingSteps[i];
+          
+          // Update step to processing
+          setTrainingSteps(prev => 
+            prev.map(s => s.id === step.id ? { ...s, status: 'processing' } : s)
+          );
+          
+          if (i === trainingSteps.length - 1) {
+            // Final step - run actual AI training
+            const trainingResult = await trainPersonaFromContent(personaId, content);
+            
+            if (trainingResult.success) {
+              // Complete all steps
+              setTrainingSteps(prev => 
+                prev.map(s => ({ ...s, status: 'completed', progress: 100 }))
+              );
+            } else {
+              throw new Error('AI training failed');
+            }
+          } else {
+            // Simulate intermediate steps
+            await simulateTrainingStep(step.id, Math.random() * 2000 + 1000);
+          }
+        }
+      } else {
+        console.log('Using simulated training (OpenAI not configured or no content)...');
+        // Simulate training steps sequentially
+        for (const step of trainingSteps) {
+          await simulateTrainingStep(step.id, Math.random() * 3000 + 2000);
+        }
+      }
+    } catch (error) {
+      console.error('Training error:', error);
+      
+      // Mark current step as error and stop
+      setTrainingSteps(prev => 
+        prev.map(step => 
+          step.status === 'processing' 
+            ? { ...step, status: 'error', progress: 0 }
+            : step
+        )
+      );
+      
+      setIsTraining(false);
+      await updatePersonaStatus('error', 0);
     }
   };
 

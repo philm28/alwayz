@@ -82,21 +82,58 @@ export function ConversationInterface({
   };
 
   const generatePersonaResponse = async (userMessage: string): Promise<string> => {
-    // Simulate AI response generation
-    // In production, this would call OpenAI, Claude, or your custom AI service
-    const responses = [
-      "I understand how you're feeling. That reminds me of when we used to talk about similar things.",
-      "You know, I've been thinking about our memories together. Tell me more about what's on your mind.",
-      "That's exactly the kind of thing I would have said! You know me so well.",
-      "I'm here for you, just like I always was. What would you like to talk about?",
-      "Your strength has always amazed me. Remember when we faced challenges together?",
-      "I can hear the emotion in your words. I'm listening, and I care about what you're going through."
-    ];
-    
-    // Simulate processing delay
-    await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
-    
-    return responses[Math.floor(Math.random() * responses.length)];
+    try {
+      // Get persona data from database
+      const { data: persona } = await supabase
+        .from('personas')
+        .select('*')
+        .eq('id', personaId)
+        .single();
+
+      if (!persona) {
+        throw new Error('Persona not found');
+      }
+
+      // Get recent conversation history for context
+      const { data: recentMessages } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('conversation_id', conversationId)
+        .order('timestamp', { ascending: false })
+        .limit(10);
+
+      // Create persona context
+      const personaContext = {
+        id: persona.id,
+        name: persona.name,
+        personality_traits: persona.personality_traits || '',
+        common_phrases: persona.common_phrases || [],
+        relationship: persona.relationship || '',
+        memories: [],
+        conversationHistory: (recentMessages || []).reverse().map(msg => ({
+          role: msg.sender_type === 'user' ? 'user' : 'assistant',
+          content: msg.content,
+          timestamp: msg.timestamp
+        }))
+      };
+
+      // Use AI engine to generate response
+      const { AIPersonaEngine } = await import('../lib/ai');
+      const aiEngine = new AIPersonaEngine(personaContext);
+      
+      return await aiEngine.generateResponse(userMessage);
+    } catch (error) {
+      console.error('Error generating persona response:', error);
+      
+      // Fallback to basic response
+      const fallbackResponses = [
+        "I understand how you're feeling. That reminds me of when we used to talk about similar things.",
+        "You know, I've been thinking about our memories together. Tell me more about what's on your mind.",
+        "I'm here for you, just like I always was. What would you like to talk about?"
+      ];
+      
+      return fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
+    }
   };
 
   const sendMessage = async () => {

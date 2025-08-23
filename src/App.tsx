@@ -18,6 +18,7 @@ import { PerformanceMonitor } from './components/PerformanceMonitor';
 import { SupabaseConnectionTest } from './components/SupabaseConnectionTest';
 import { SupabaseStorageTest } from './components/SupabaseStorageTest';
 import { TemporaryLogin } from './components/TemporaryLogin';
+import { OpenAIStatus } from './components/OpenAIStatus';
 import { initializeMonitoring, setUserContext } from './lib/monitoring';
 import { initializeAnalytics, trackPageView } from './lib/analytics';
 import { emailService } from './lib/email';
@@ -98,6 +99,12 @@ function App() {
               className={`text-gray-700 hover:text-purple-600 transition-colors ${currentView === 'storage-test' ? 'text-purple-600 font-medium' : ''}`}
             >
               Storage Test
+            </button>
+            <button
+              onClick={() => setCurrentView('openai-status')}
+              className={`text-gray-700 hover:text-purple-600 transition-colors ${currentView === 'openai-status' ? 'text-purple-600 font-medium' : ''}`}
+            >
+              OpenAI Status
             </button>
             {user && (
               <>
@@ -183,6 +190,12 @@ function App() {
               className={`block w-full text-left text-gray-700 hover:text-purple-600 ${currentView === 'storage-test' ? 'text-purple-600 font-medium' : ''}`}
             >
               Storage Test
+            </button>
+            <button
+              onClick={() => {setCurrentView('openai-status'); setIsMenuOpen(false);}}
+              className={`block w-full text-left text-gray-700 hover:text-purple-600 ${currentView === 'openai-status' ? 'text-purple-600 font-medium' : ''}`}
+            >
+              OpenAI Status
             </button>
             {user && (
               <>
@@ -697,6 +710,16 @@ function App() {
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
               <h1 className="text-3xl font-bold text-gray-900 mb-6">Supabase Storage Test</h1>
               <SupabaseStorageTest />
+            </div>
+          </div>
+        );
+      case 'openai-status':
+        return (
+          <div className="min-h-screen bg-gray-50">
+            <Navigation />
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+              <h1 className="text-3xl font-bold text-gray-900 mb-6">OpenAI Integration Status</h1>
+              <OpenAIStatus />
             </div>
           </div>
         );
