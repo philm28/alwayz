@@ -22,17 +22,26 @@ export async function setupDatabase() {
   try {
     console.log('🔄 Setting up database...');
     
-    // Test if tables exist by trying to query profiles
-    const { error } = await supabase.from('profiles').select('count', { count: 'exact', head: true });
+    // Test if tables exist by trying to query personas first
+    const { error: personasError } = await supabase.from('personas').select('count', { count: 'exact', head: true });
     
-    if (error && error.code === 'PGRST116') {
+    if (personasError && personasError.code === '42P01') {
       console.log('❌ Database tables not found. Please run the migration in Supabase SQL Editor.');
       console.log('📋 Copy the migration file content from: supabase/migrations/20250626224737_ancient_summit.sql');
       return false;
     }
     
-    if (error) {
-      console.error('Database setup error:', error);
+    // Test persona_content table specifically
+    const { error: contentError } = await supabase.from('persona_content').select('count', { count: 'exact', head: true });
+    
+    if (contentError && contentError.code === '42P01') {
+      console.log('❌ persona_content table not found. Please run the migration in Supabase SQL Editor.');
+      console.log('📋 Copy the migration file content from: supabase/migrations/20250626224737_ancient_summit.sql');
+      return false;
+    }
+    
+    if (personasError || contentError) {
+      console.error('Database setup error:', personasError || contentError);
       return false;
     }
     

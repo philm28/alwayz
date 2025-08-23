@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, Mic, MicOff, Video, VideoOff, Phone, Settings } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../hooks/useAuth';
 
 interface ConversationInterfaceProps {
   personaId: string;
@@ -31,6 +32,7 @@ export function ConversationInterface({
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   
+  const { user } = useAuth();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -50,9 +52,14 @@ export function ConversationInterface({
 
   const initializeConversation = async () => {
     try {
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
       const { data, error } = await supabase
         .from('conversations')
         .insert({
+          user_id: user.id,
           persona_id: personaId,
           conversation_type: conversationType,
           started_at: new Date().toISOString(),
