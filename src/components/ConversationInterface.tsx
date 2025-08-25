@@ -37,10 +37,12 @@ export function ConversationInterface({
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    initializeConversation();
-    // Add some initial messages to simulate conversation
-    addInitialMessages();
-  }, []);
+    if (user) {
+      initializeConversation();
+      // Add some initial messages to simulate conversation
+      addInitialMessages();
+    }
+  }, [user]);
 
   useEffect(() => {
     scrollToBottom();
