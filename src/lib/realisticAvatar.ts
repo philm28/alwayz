@@ -1,5 +1,6 @@
 import { AvatarEngine } from './avatarEngine';
 import { voiceCloning } from './voiceCloning';
+import { supabase } from './supabase';
 
 export interface RealisticPersona {
   id: string;
