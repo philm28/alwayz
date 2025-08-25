@@ -1,0 +1,363 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Mic, MicOff, Video, VideoOff, Phone, Volume2, VolumeX } from 'lucide-react';
+import { realisticAvatarManager } from '../lib/realisticAvatar';
+import { useAuth } from '../hooks/useAuth';
+import Webcam from 'react-webcam';
+
+interface RealisticVideoCallProps {
+  personaId: string;
+  personaName: string;
+  onEndCall: () => void;
+}
+
+export function RealisticVideoCall({ personaId, personaName, onEndCall }: RealisticVideoCallProps) {
+  const [isConnected, setIsConnected] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isVideoOn, setIsVideoOn] = useState(true);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(true);
+  const [callDuration, setCallDuration] = useState(0);
+  const [isPersonaSpeaking, setIsPersonaSpeaking] = useState(false);
+  const [currentMessage, setCurrentMessage] = useState('');
+  
+  const webcamRef = useRef<Webcam>(null);
+  const avatarCanvasRef = useRef<HTMLCanvasElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const callStartTime = useRef<Date>(new Date());
+  const { user } = useAuth();
+
+  useEffect(() => {
+    initializeRealisticCall();
+    startCallTimer();
+
+    return () => {
+      cleanup();
+    };
+  }, []);
+
+  const initializeRealisticCall = async () => {
+    try {
+      // Get persona data from database
+      const { data: persona } = await supabase
+        .from('personas')
+        .select('*')
+        .eq('id', personaId)
+        .single();
+
+      if (!persona) {
+        throw new Error('Persona not found');
+      }
+
+      // Initialize realistic avatar
+      const realisticPersona = await realisticAvatarManager.initializePersona(
+        personaId,
+        personaName,
+        persona.avatar_url || '',
+        persona.metadata?.video_avatar_url,
+        persona.metadata?.voice_profile?.sampleAudioUrls
+      );
+
+      // Set up avatar canvas
+      if (avatarCanvasRef.current && realisticPersona.avatarEngine.getCanvas()) {
+        const avatarCanvas = realisticPersona.avatarEngine.getCanvas();
+        if (avatarCanvas) {
+          avatarCanvasRef.current.width = avatarCanvas.width;
+          avatarCanvasRef.current.height = avatarCanvas.height;
+          
+          const ctx = avatarCanvasRef.current.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(avatarCanvas, 0, 0);
+          }
+        }
+      }
+
+      // Simulate connection
+      setTimeout(() => {
+        setIsConnected(true);
+        generateGreeting();
+      }, 2000);
+
+    } catch (error) {
+      console.error('Error initializing realistic call:', error);
+    }
+  };
+
+  const generateGreeting = async () => {
+    try {
+      const greeting = "Hello! It's so wonderful to see you. I've missed our conversations.";
+      await speakMessage(greeting);
+    } catch (error) {
+      console.error('Error generating greeting:', error);
+    }
+  };
+
+  const speakMessage = async (text: string, emotion?: string) => {
+    try {
+      setIsPersonaSpeaking(true);
+      
+      // Generate realistic response with voice and video
+      const response = await realisticAvatarManager.generateResponse(
+        personaId,
+        text,
+        emotion
+      );
+
+      // Play audio if available
+      if (response.audioBlob && audioRef.current) {
+        const audioUrl = URL.createObjectURL(response.audioBlob);
+        audioRef.current.src = audioUrl;
+        audioRef.current.play();
+        
+        audioRef.current.onended = () => {
+          setIsPersonaSpeaking(false);
+          URL.revokeObjectURL(audioUrl);
+        };
+      } else {
+        // Fallback: simulate speaking duration
+        setTimeout(() => {
+          setIsPersonaSpeaking(false);
+        }, text.length * 50); // ~50ms per character
+      }
+
+      // Update avatar canvas with video if available
+      if (response.videoBlob && avatarCanvasRef.current) {
+        // In production, this would play the generated video
+        // For now, we'll animate the static avatar
+        animateAvatar(text.length * 50);
+      }
+
+    } catch (error) {
+      console.error('Error speaking message:', error);
+      setIsPersonaSpeaking(false);
+    }
+  };
+
+  const animateAvatar = (duration: number) => {
+    if (!avatarCanvasRef.current) return;
+
+    const canvas = avatarCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let startTime = Date.now();
+    const animate = () => {
+      const elapsed = Date.now() - startTime;
+      const progress = elapsed / duration;
+
+      if (progress < 1) {
+        // Simple animation - in production, this would be sophisticated facial animation
+        const scale = 1 + Math.sin(elapsed * 0.01) * 0.02; // Subtle breathing effect
+        
+        ctx.save();
+        ctx.scale(scale, scale);
+        // Redraw avatar with animation
+        ctx.restore();
+        
+        requestAnimationFrame(animate);
+      }
+    };
+    
+    animate();
+  };
+
+  const startCallTimer = () => {
+    const interval = setInterval(() => {
+      const now = new Date();
+      const duration = Math.floor((now.getTime() - callStartTime.current.getTime()) / 1000);
+      setCallDuration(duration);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  };
+
+  const formatDuration = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleUserMessage = async () => {
+    if (!currentMessage.trim()) return;
+
+    const userMessage = currentMessage;
+    setCurrentMessage('');
+
+    // Display user message briefly
+    console.log('User said:', userMessage);
+
+    // Generate and speak persona response
+    setTimeout(() => {
+      speakMessage(userMessage);
+    }, 1000);
+  };
+
+  const cleanup = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+    }
+    realisticAvatarManager.destroyPersona(personaId);
+  };
+
+  return (
+    <div className="h-screen bg-black flex flex-col">
+      {/* Header */}
+      <div className="absolute top-0 left-0 right-0 z-10 bg-gradient-to-b from-black/50 to-transparent p-6">
+        <div className="flex justify-between items-center text-white">
+          <div>
+            <h2 className="text-xl font-semibold">{personaName}</h2>
+            <p className="text-sm opacity-75">
+              {isConnected ? `Connected • ${formatDuration(callDuration)}` : 'Connecting...'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Video Area */}
+      <div className="flex-1 relative">
+        {/* Persona Avatar */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          {isConnected ? (
+            <div className="relative w-full h-full">
+              {/* Realistic Avatar Canvas */}
+              <canvas
+                ref={avatarCanvasRef}
+                className="w-full h-full object-cover"
+                style={{ 
+                  filter: isPersonaSpeaking ? 'brightness(1.1)' : 'brightness(1)',
+                  transition: 'filter 0.3s ease'
+                }}
+              />
+              
+              {/* Fallback if no avatar video */}
+              {!avatarCanvasRef.current && (
+                <div className="w-full h-full bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
+                  <div className="text-center text-white">
+                    <div className={`w-48 h-48 bg-gradient-to-br from-purple-400 to-blue-400 rounded-full mx-auto mb-6 flex items-center justify-center transition-all duration-300 ${
+                      isPersonaSpeaking ? 'scale-110 shadow-2xl' : ''
+                    }`}>
+                      <span className="text-6xl font-bold">{personaName[0]}</span>
+                    </div>
+                    <h2 className="text-3xl font-semibold mb-2">{personaName}</h2>
+                    <div className="flex items-center justify-center space-x-2">
+                      <div className={`w-3 h-3 rounded-full ${isPersonaSpeaking ? 'bg-green-400 animate-pulse' : 'bg-gray-400'}`}></div>
+                      <span className="text-lg opacity-75">
+                        {isPersonaSpeaking ? 'Speaking...' : 'Listening'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Audio visualization */}
+              {isPersonaSpeaking && (
+                <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2">
+                  <div className="flex items-center space-x-1">
+                    {[...Array(5)].map((_, i) => (
+                      <div
+                        key={i}
+                        className="w-1 bg-white rounded-full animate-pulse"
+                        style={{
+                          height: `${Math.random() * 20 + 10}px`,
+                          animationDelay: `${i * 0.1}s`
+                        }}
+                      ></div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center text-white">
+              <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-white mx-auto mb-4"></div>
+              <p className="text-xl">Connecting to {personaName}...</p>
+            </div>
+          )}
+        </div>
+
+        {/* Local Video (User) */}
+        <div className="absolute bottom-20 right-6 w-48 h-36 bg-gray-800 rounded-lg border-2 border-white/20 overflow-hidden">
+          {isVideoOn ? (
+            <Webcam
+              ref={webcamRef}
+              audio={false}
+              className="w-full h-full object-cover"
+              mirrored
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-white">
+              <VideoOff className="h-8 w-8" />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-6">
+        {/* Message Input */}
+        <div className="flex items-center space-x-3 mb-4">
+          <input
+            type="text"
+            value={currentMessage}
+            onChange={(e) => setCurrentMessage(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleUserMessage()}
+            placeholder="Say something..."
+            className="flex-1 bg-white/20 backdrop-blur text-white placeholder-gray-300 px-4 py-2 rounded-full focus:outline-none focus:ring-2 focus:ring-purple-500"
+          />
+          <button
+            onClick={handleUserMessage}
+            disabled={!currentMessage.trim()}
+            className="p-2 bg-purple-600 rounded-full hover:bg-purple-700 transition-colors disabled:opacity-50"
+          >
+            <Mic className="h-5 w-5 text-white" />
+          </button>
+        </div>
+
+        {/* Call Controls */}
+        <div className="flex justify-center items-center space-x-6">
+          <button
+            onClick={() => setIsMuted(!isMuted)}
+            className={`p-4 rounded-full transition-all duration-300 ${
+              isMuted 
+                ? 'bg-red-500 hover:bg-red-600' 
+                : 'bg-white/20 hover:bg-white/30 backdrop-blur'
+            }`}
+          >
+            {isMuted ? <MicOff className="h-6 w-6 text-white" /> : <Mic className="h-6 w-6 text-white" />}
+          </button>
+
+          <button
+            onClick={() => setIsVideoOn(!isVideoOn)}
+            className={`p-4 rounded-full transition-all duration-300 ${
+              !isVideoOn 
+                ? 'bg-red-500 hover:bg-red-600' 
+                : 'bg-white/20 hover:bg-white/30 backdrop-blur'
+            }`}
+          >
+            {isVideoOn ? <Video className="h-6 w-6 text-white" /> : <VideoOff className="h-6 w-6 text-white" />}
+          </button>
+
+          <button
+            onClick={onEndCall}
+            className="p-4 bg-red-500 rounded-full hover:bg-red-600 transition-all duration-300 transform hover:scale-105"
+          >
+            <Phone className="h-6 w-6 text-white" />
+          </button>
+
+          <button
+            onClick={() => setIsSpeakerOn(!isSpeakerOn)}
+            className={`p-4 rounded-full transition-all duration-300 ${
+              !isSpeakerOn 
+                ? 'bg-red-500 hover:bg-red-600' 
+                : 'bg-white/20 hover:bg-white/30 backdrop-blur'
+            }`}
+          >
+            {isSpeakerOn ? <Volume2 className="h-6 w-6 text-white" /> : <VolumeX className="h-6 w-6 text-white" />}
+          </button>
+        </div>
+      </div>
+
+      {/* Hidden audio element for persona voice */}
+      <audio ref={audioRef} style={{ display: 'none' }} />
+    </div>
+  );
+}

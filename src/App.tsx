@@ -20,6 +20,8 @@ import { SupabaseStorageTest } from './components/SupabaseStorageTest';
 import { TemporaryLogin } from './components/TemporaryLogin';
 import { OpenAIStatus } from './components/OpenAIStatus';
 import { OAuthCallback } from './components/OAuthCallback';
+import { AvatarUpload } from './components/AvatarUpload';
+import { RealisticVideoCall } from './components/RealisticVideoCall';
 import { initializeMonitoring, setUserContext } from './lib/monitoring';
 import { initializeAnalytics, trackPageView } from './lib/analytics';
 import { emailService } from './lib/email';
@@ -745,12 +747,41 @@ function App() {
         ) : <LandingPage />;
       case 'video-call':
         return user && selectedPersona ? (
-          <ConversationInterface
+          <RealisticVideoCall
             personaId={selectedPersona.id}
             personaName={selectedPersona.name}
-            conversationType="video_call"
             onEndCall={() => setCurrentView('dashboard')}
           />
+        ) : <LandingPage />;
+      case 'avatar-setup':
+        return user && selectedPersona ? (
+          <div className="min-h-screen bg-gray-50">
+            <Navigation />
+            <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+              <div className="mb-8">
+                <button
+                  onClick={() => setCurrentView('persona-setup')}
+                  className="flex items-center text-purple-600 hover:text-purple-700 font-medium mb-4"
+                >
+                  ← Back to Persona Setup
+                </button>
+                <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                  Create Realistic Avatar for {selectedPersona.name}
+                </h1>
+                <p className="text-gray-600">
+                  Upload photos, videos, and voice recordings to create a lifelike AI persona
+                </p>
+              </div>
+              <AvatarUpload
+                personaId={selectedPersona.id}
+                personaName={selectedPersona.name}
+                onAvatarCreated={(avatarUrl) => {
+                  console.log('Avatar created:', avatarUrl);
+                  setCurrentView('persona-setup');
+                }}
+              />
+            </div>
+          </div>
         ) : <LandingPage />;
       case 'oauth-callback':
         return (
