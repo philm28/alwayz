@@ -202,7 +202,7 @@ export class PaymentManager {
 
       // Get storage usage (sum of file sizes)
       const { data: contentData } = await supabase
-        .from('persona-content')
+        .from('persona_content')
         .select('file_size')
         .in('persona_id', 
           (await supabase.from('personas').select('id').eq('user_id', userId)).data?.map(p => p.id) || []

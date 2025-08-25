@@ -41,7 +41,7 @@ export function DatabaseSetup() {
   1. New Tables
     - profiles - User profile information
     - personas - AI personas created by users
-    - persona-content - Uploaded content for training personas
+    - persona_content - Uploaded content for training personas
     - conversations - Chat/call sessions between users and personas
     - messages - Individual messages within conversations
     - subscriptions - User subscription management
