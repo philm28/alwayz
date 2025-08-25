@@ -99,6 +99,7 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
         avatarEngineRef.current = realisticPersona.avatarEngine;
       } catch (avatarError) {
         console.warn('Realistic avatar initialization failed, using fallback:', avatarError);
+        avatarEngineRef.current = null;
         setAvatarError('Using fallback avatar display');
       }
 
@@ -186,7 +187,22 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
   const playAudioWithLipSync = async (audioBuffer: ArrayBuffer): Promise<void> => {
     return new Promise((resolve, reject) => {
       try {
+        // Check if audioBuffer is valid and not empty
+        if (!audioBuffer || audioBuffer.byteLength === 0) {
+          console.warn('Audio buffer is empty or invalid, falling back to speech synthesis');
+          this.fallbackToSpeechSynthesis(lastResponse).then(resolve).catch(reject);
+          return;
+        }
+
         const audioBlob = new Blob([audioBuffer], { type: 'audio/mpeg' });
+        
+        // Validate the blob
+        if (audioBlob.size === 0) {
+          console.warn('Audio blob is empty, falling back to speech synthesis');
+          this.fallbackToSpeechSynthesis(lastResponse).then(resolve).catch(reject);
+          return;
+        }
+        
         const audioUrl = URL.createObjectURL(audioBlob);
         
         if (audioRef.current) {

@@ -63,13 +63,21 @@ export class AvatarEngine {
       this.baseImage.crossOrigin = 'anonymous';
       
       await new Promise((resolve, reject) => {
-        this.baseImage!.onload = resolve;
+        this.baseImage!.onload = () => {
+          // Verify the image loaded successfully
+          if (this.baseImage!.naturalWidth > 0 && this.baseImage!.naturalHeight > 0) {
+            console.log('Base persona image loaded successfully');
+            resolve(undefined);
+          } else {
+            console.error('Image loaded but has invalid dimensions');
+            this.baseImage = null;
+            reject(new Error('Invalid image dimensions'));
+          }
+        };
         this.baseImage!.onerror = reject;
         this.baseImage!.src = this.photoUrls[0];
       });
 
-      console.log('Base persona image loaded successfully');
-      
       // Analyze face if we have multiple photos
       if (this.photoUrls.length > 1) {
         await this.createFaceMapping();
@@ -79,6 +87,7 @@ export class AvatarEngine {
       this.drawAvatar();
     } catch (error) {
       console.error('Error loading persona photos:', error);
+      this.baseImage = null;
     }
   }
 
@@ -107,7 +116,13 @@ export class AvatarEngine {
   }
 
   private drawAvatar(expression: string = 'neutral', intensity: number = 0) {
-    if (!this.canvas || !this.ctx || !this.baseImage) return;
+    if (!this.canvas || !this.ctx) return;
+    
+    // Check if base image is valid and loaded
+    if (!this.baseImage || this.baseImage.naturalWidth === 0 || this.baseImage.naturalHeight === 0) {
+      console.warn('Base image not available or broken, skipping avatar draw');
+      return;
+    }
 
     // Clear canvas
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
