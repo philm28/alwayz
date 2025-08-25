@@ -21,6 +21,7 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
   const [currentMessage, setCurrentMessage] = useState('');
   const [personaData, setPersonaData] = useState<any>(null);
   const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [lastResponse, setLastResponse] = useState<string>('');
   
   const webcamRef = useRef<Webcam>(null);
   const avatarCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -104,7 +105,8 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
 
   const generateGreeting = async () => {
     try {
-      const greeting = "Hello! It's so wonderful to see you. I've missed our conversations.";
+      const greeting = `Hello! It's so wonderful to see you. I've missed our conversations.`;
+      setLastResponse(greeting);
       await speakMessage(greeting);
     } catch (error) {
       console.error('Error generating greeting:', error);
@@ -114,38 +116,79 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
   const speakMessage = async (text: string, emotion?: string) => {
     try {
       setIsPersonaSpeaking(true);
+      setLastResponse(text);
       
-      // Generate realistic response with voice and video
-      const response = await realisticAvatarManager.generateResponse(
-        personaId,
-        text,
-        emotion
-      );
-
-      // Play audio if available
-      if (response.audioBlob && audioRef.current) {
-        const audioUrl = URL.createObjectURL(response.audioBlob);
-        audioRef.current.src = audioUrl;
-        audioRef.current.play();
+      // Try to generate voice using AI engine
+      try {
+        const { AIPersonaEngine } = await import('../lib/ai');
         
-        audioRef.current.onended = () => {
-          setIsPersonaSpeaking(false);
-          URL.revokeObjectURL(audioUrl);
+        const personaContext = {
+          id: personaData?.id || personaId,
+          name: personaData?.name || personaName,
+          personality_traits: personaData?.personality_traits || 'Warm and caring',
+          common_phrases: personaData?.common_phrases || [],
+          relationship: personaData?.relationship || 'Loved one',
+          memories: [],
+          conversationHistory: []
         };
-      } else {
+
+        const aiEngine = new AIPersonaEngine(personaContext);
+        
+        // Try to generate voice
+        try {
+          const audioBuffer = await aiEngine.generateVoice(text);
+          const audioBlob = new Blob([audioBuffer], { type: 'audio/mpeg' });
+          const audioUrl = URL.createObjectURL(audioBlob);
+          
+          if (audioRef.current) {
+            audioRef.current.src = audioUrl;
+            audioRef.current.volume = isSpeakerOn ? 1.0 : 0.0;
+            
+            // Play audio
+            const playPromise = audioRef.current.play();
+            if (playPromise) {
+              playPromise.then(() => {
+                console.log('Audio playing successfully');
+              }).catch((error) => {
+                console.warn('Audio autoplay prevented:', error);
+                // Show a message to user that they need to interact first
+              });
+            }
+            
+            audioRef.current.onended = () => {
+              setIsPersonaSpeaking(false);
+              URL.revokeObjectURL(audioUrl);
+            };
+          }
+        } catch (voiceError) {
+          console.warn('Voice generation failed, using text-to-speech fallback:', voiceError);
+          
+          // Fallback: Use browser's speech synthesis
+          if ('speechSynthesis' in window) {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 0.9;
+            utterance.pitch = 1.0;
+            utterance.volume = isSpeakerOn ? 1.0 : 0.0;
+            
+            utterance.onend = () => {
+              setIsPersonaSpeaking(false);
+            };
+            
+            speechSynthesis.speak(utterance);
+          } else {
+            // Final fallback: just simulate speaking time
+            setTimeout(() => {
+              setIsPersonaSpeaking(false);
+            }, text.length * 50);
+          }
+        }
+      } catch (aiError) {
+        console.error('AI engine error:', aiError);
         // Fallback: simulate speaking duration
         setTimeout(() => {
           setIsPersonaSpeaking(false);
-        }, text.length * 50); // ~50ms per character
+        }, text.length * 50);
       }
-
-      // Update avatar canvas with video if available
-      if (response.videoBlob && avatarCanvasRef.current) {
-        // In production, this would play the generated video
-        // For now, we'll animate the static avatar
-        animateAvatar(text.length * 50);
-      }
-
     } catch (error) {
       console.error('Error speaking message:', error);
       setIsPersonaSpeaking(false);
@@ -225,6 +268,7 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
         const response = await aiEngine.generateResponse(userMessage);
         
         await speakMessage(response);
+        setLastResponse(response);
       } catch (error) {
         console.error('Error generating response:', error);
         await speakMessage("I'm having trouble finding the right words right now. Could you try asking me again?");
@@ -259,61 +303,58 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
         {/* Persona Avatar */}
         <div className="absolute inset-0 flex items-center justify-center">
           {isConnected ? (
-            <div className="relative w-full h-full">
-              {/* Try to show realistic avatar canvas first */}
-              {avatarCanvasRef.current && !avatarError ? (
-                <canvas
-                  ref={avatarCanvasRef}
-                  className="w-full h-full object-cover"
-                  style={{ 
-                    filter: isPersonaSpeaking ? 'brightness(1.1)' : 'brightness(1)',
-                    transition: 'filter 0.3s ease'
-                  }}
-                />
-              ) : (
-                /* Fallback avatar display */
-                <div className="w-full h-full bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
-                  <div className="text-center text-white">
-                    {personaData?.avatar_url ? (
-                      <div className={`w-48 h-48 mx-auto mb-6 rounded-full overflow-hidden border-4 border-white/20 transition-all duration-300 ${
-                        isPersonaSpeaking ? 'scale-110 shadow-2xl' : ''
-                      }`}>
-                        <img 
-                          src={personaData.avatar_url} 
-                          alt={personaName}
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            // Fallback to initials if image fails to load
-                            e.currentTarget.style.display = 'none';
-                            e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                          }}
-                        />
-                        <div className={`w-full h-full bg-gradient-to-br from-purple-400 to-blue-400 flex items-center justify-center hidden`}>
-                          <span className="text-6xl font-bold">{personaName[0]}</span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className={`w-48 h-48 bg-gradient-to-br from-purple-400 to-blue-400 rounded-full mx-auto mb-6 flex items-center justify-center transition-all duration-300 ${
-                        isPersonaSpeaking ? 'scale-110 shadow-2xl' : ''
-                      }`}>
-                        <span className="text-6xl font-bold">{personaName[0]}</span>
-                      </div>
-                    )}
-                    <h2 className="text-3xl font-semibold mb-2">{personaName}</h2>
-                    <div className="flex items-center justify-center space-x-2">
-                      <div className={`w-3 h-3 rounded-full ${isPersonaSpeaking ? 'bg-green-400 animate-pulse' : 'bg-gray-400'}`}></div>
-                      <span className="text-lg opacity-75">
-                        {isPersonaSpeaking ? 'Speaking...' : 'Listening'}
-                      </span>
+            <div className="relative w-full h-full bg-gradient-to-br from-gray-900 via-gray-800 to-black flex items-center justify-center">
+              <div className="text-center text-white">
+                {/* Avatar Display */}
+                {personaData?.avatar_url ? (
+                  <div className={`w-64 h-64 mx-auto mb-6 rounded-full overflow-hidden border-4 border-white/30 transition-all duration-300 ${
+                    isPersonaSpeaking ? 'scale-110 shadow-2xl ring-4 ring-purple-400/50' : 'scale-100'
+                  }`}>
+                    <img 
+                      src={personaData.avatar_url} 
+                      alt={personaName}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        console.log('Avatar image failed to load, using fallback');
+                        const target = e.target as HTMLImageElement;
+                        target.style.display = 'none';
+                        const fallback = target.nextElementSibling as HTMLElement;
+                        if (fallback) fallback.style.display = 'flex';
+                      }}
+                    />
+                    <div className="w-full h-full bg-gradient-to-br from-purple-400 to-blue-400 flex items-center justify-center" style={{ display: 'none' }}>
+                      <span className="text-6xl font-bold">{personaName[0]}</span>
                     </div>
-                    {avatarError && (
-                      <p className="text-sm text-yellow-300 mt-2">
-                        {avatarError}
-                      </p>
-                    )}
                   </div>
+                ) : (
+                  <div className={`w-64 h-64 bg-gradient-to-br from-purple-400 to-blue-400 rounded-full mx-auto mb-6 flex items-center justify-center transition-all duration-300 ${
+                    isPersonaSpeaking ? 'scale-110 shadow-2xl ring-4 ring-purple-400/50' : 'scale-100'
+                  }`}>
+                    <span className="text-6xl font-bold">{personaName[0]}</span>
+                  </div>
+                )}
+                
+                <h2 className="text-3xl font-semibold mb-2">{personaName}</h2>
+                <div className="flex items-center justify-center space-x-2 mb-4">
+                  <div className={`w-3 h-3 rounded-full ${isPersonaSpeaking ? 'bg-green-400 animate-pulse' : 'bg-gray-400'}`}></div>
+                  <span className="text-lg opacity-75">
+                    {isPersonaSpeaking ? 'Speaking...' : 'Listening'}
+                  </span>
                 </div>
-              )}
+                
+                {/* Show last response */}
+                {lastResponse && (
+                  <div className="max-w-md mx-auto bg-black/30 backdrop-blur rounded-lg p-4 mb-4">
+                    <p className="text-sm text-white/90">{lastResponse}</p>
+                  </div>
+                )}
+                
+                {avatarError && (
+                  <p className="text-sm text-yellow-300 mt-2">
+                    Debug: {avatarError}
+                  </p>
+                )}
+              </div>
 
               {/* Audio visualization */}
               {isPersonaSpeaking && (
@@ -423,8 +464,18 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
         </div>
       </div>
 
-      {/* Hidden audio element for persona voice */}
-      <audio ref={audioRef} style={{ display: 'none' }} />
+      {/* Audio element for persona voice */}
+      <audio 
+        ref={audioRef} 
+        style={{ display: 'none' }} 
+        preload="auto"
+        onError={(e) => {
+          console.error('Audio playback error:', e);
+        }}
+        onCanPlay={() => {
+          console.log('Audio ready to play');
+        }}
+      />
     </div>
   );
 }
