@@ -156,7 +156,7 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
       console.log('Saving to database with payload:', dbPayload);
 
       const { data: dbData, error: dbError } = await supabase
-        .from('persona-content')
+        .from('persona_content')
         .insert(dbPayload)
         .select();
 

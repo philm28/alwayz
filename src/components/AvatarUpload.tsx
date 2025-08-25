@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload, User, Video, Mic, Image, CheckCircle, AlertCircle } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 import { realisticAvatarManager } from '../lib/realisticAvatar';
 import { voiceCloning } from '../lib/voiceCloning';
 import toast from 'react-hot-toast';

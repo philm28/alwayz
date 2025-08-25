@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS personas (
 );
 
 -- Create persona content table for uploaded training data
-CREATE TABLE IF NOT EXISTS "persona-content" (
+CREATE TABLE IF NOT EXISTS persona_content (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   persona_id uuid REFERENCES personas(id) ON DELETE CASCADE,
   content_type text NOT NULL,
@@ -153,8 +153,8 @@ CREATE POLICY "Users can create personas" ON personas FOR INSERT TO authenticate
 CREATE POLICY "Users can update own personas" ON personas FOR UPDATE TO authenticated USING (auth.uid() = user_id);
 CREATE POLICY "Users can delete own personas" ON personas FOR DELETE TO authenticated USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can read own persona content" ON "persona-content" FOR SELECT TO authenticated USING (EXISTS (SELECT 1 FROM personas WHERE personas.id = "persona-content".persona_id AND personas.user_id = auth.uid()));
-CREATE POLICY "Users can upload persona content" ON "persona-content" FOR INSERT TO authenticated WITH CHECK (EXISTS (SELECT 1 FROM personas WHERE personas.id = "persona-content".persona_id AND personas.user_id = auth.uid()));
+CREATE POLICY "Users can read own persona content" ON persona_content FOR SELECT TO authenticated USING (EXISTS (SELECT 1 FROM personas WHERE personas.id = persona_content.persona_id AND personas.user_id = auth.uid()));
+CREATE POLICY "Users can upload persona content" ON persona_content FOR INSERT TO authenticated WITH CHECK (EXISTS (SELECT 1 FROM personas WHERE personas.id = persona_content.persona_id AND personas.user_id = auth.uid()));
 
 CREATE POLICY "Users can read own conversations" ON conversations FOR SELECT TO authenticated USING (auth.uid() = user_id);
 CREATE POLICY "Users can create conversations" ON conversations FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
@@ -166,7 +166,7 @@ CREATE POLICY "Users can read own subscription" ON subscriptions FOR SELECT TO a
 
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_personas_user_id ON personas(user_id);
-CREATE INDEX IF NOT EXISTS idx_persona_content_persona_id ON "persona-content"(persona_id);
+CREATE INDEX IF NOT EXISTS idx_persona_content_persona_id ON persona_content(persona_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_persona_id ON conversations(persona_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
