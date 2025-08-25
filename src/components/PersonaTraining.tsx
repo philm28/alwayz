@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Brain, CheckCircle, Clock, AlertCircle, Zap } from 'lucide-react';
+import { Brain, CheckCircle, Clock, AlertCircle, Zap, User } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface PersonaTrainingProps {
@@ -265,13 +265,22 @@ export function PersonaTraining({ personaId, onTrainingComplete }: PersonaTraini
       {/* Action Button */}
       <div className="text-center">
         {!isTraining && overallProgress === 0 && (
-          <button
-            onClick={startTraining}
-            className="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-8 py-3 rounded-full font-semibold hover:shadow-lg transition-all duration-300 flex items-center mx-auto"
-          >
-            <Zap className="h-5 w-5 mr-2" />
-            Start AI Training
-          </button>
+          <div>
+            <button
+              onClick={startTraining}
+              className="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-8 py-3 rounded-full font-semibold hover:shadow-lg transition-all duration-300 flex items-center mx-auto mb-4"
+            >
+              <Zap className="h-5 w-5 mr-2" />
+              Start AI Training
+            </button>
+            <button
+              onClick={() => window.location.hash = 'avatar-setup'}
+              className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-8 py-3 rounded-full font-semibold hover:shadow-lg transition-all duration-300 flex items-center mx-auto"
+            >
+              <User className="h-5 w-5 mr-2" />
+              Create Realistic Avatar
+            </button>
+          </div>
         )}
         
         {isTraining && (
