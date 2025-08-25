@@ -4,7 +4,7 @@ If you're experiencing issues with the Supabase storage bucket after following t
 
 ## Quick Fix: Run This SQL
 
-The fastest way to fix storage issues is to run this SQL in your Supabase SQL Editor:
+The fastest way to fix storage issues is to run this SQL in your Supabase SQL Editor (Dashboard > SQL Editor > New Query):
 
 ```sql
 -- Create bucket if it doesn't exist
@@ -17,28 +17,34 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
--- Remove any existing policies that might be causing issues
+-- Enable RLS on storage.objects if not already enabled
+ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+
+-- Remove any existing conflicting policies
 DROP POLICY IF EXISTS "Users can upload persona content" ON storage.objects;
 DROP POLICY IF EXISTS "Users can read own persona content" ON storage.objects;
 DROP POLICY IF EXISTS "Users can delete own persona content" ON storage.objects;
 DROP POLICY IF EXISTS "Users can upload files" ON storage.objects;
 DROP POLICY IF EXISTS "Users can read files" ON storage.objects;
 DROP POLICY IF EXISTS "Users can delete files" ON storage.objects;
+DROP POLICY IF EXISTS "Allow authenticated uploads" ON storage.objects;
+DROP POLICY IF EXISTS "Allow authenticated reads" ON storage.objects;
+DROP POLICY IF EXISTS "Allow authenticated deletes" ON storage.objects;
 
--- Add simple RLS policies with no path restrictions
-CREATE POLICY "Users can upload files"
+-- Create simple, permissive policies for authenticated users
+CREATE POLICY "Allow authenticated uploads"
 ON storage.objects
 FOR INSERT
 TO authenticated
 WITH CHECK (bucket_id = 'persona-content');
 
-CREATE POLICY "Users can read files"
+CREATE POLICY "Allow authenticated reads"
 ON storage.objects
 FOR SELECT
 TO authenticated
 USING (bucket_id = 'persona-content');
 
-CREATE POLICY "Users can delete files"
+CREATE POLICY "Allow authenticated deletes"
 ON storage.objects
 FOR DELETE
 TO authenticated

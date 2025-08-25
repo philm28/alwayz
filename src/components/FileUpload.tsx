@@ -57,34 +57,21 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
     try {
       setBucketChecked(false);
       
-      // Instead of listing buckets, directly test bucket access with a small test operation
-      try {
-        const testPath = `test-${Date.now()}.txt`;
-        const { error: uploadError } = await supabase.storage
-          .from('persona-content')
-          .upload(testPath, new Blob(['test']), {
-            cacheControl: '3600',
-            upsert: true
-          });
+      // Check if bucket exists by attempting to list files (read-only operation)
+      const { error: listError } = await supabase.storage
+        .from('persona-content')
+        .list('', { limit: 1 });
 
-        if (uploadError) {
-          console.error('Test upload error:', uploadError);
-          if (uploadError.message.includes('permission denied')) {
-            setBucketError('Permission denied. Please check your storage bucket policies.');
-          } else if (uploadError.message.includes('not found')) {
-            setBucketError('Storage bucket "persona-content" not found. Please create it manually in your Supabase dashboard under Storage > New Bucket with a 50MB file size limit.');
-          } else {
-            setBucketError(`Storage access error: ${uploadError.message}`);
-          }
-          setBucketChecked(true);
-          return false;
+      if (listError) {
+        console.error('Storage bucket error:', listError);
+        
+        if (listError.message.includes('not found') || listError.message.includes('does not exist')) {
+          setBucketError('Storage bucket "persona-content" not found. Please create it manually in your Supabase dashboard under Storage > New Bucket with a 50MB file size limit.');
+        } else if (listError.message.includes('permission denied') || listError.message.includes('row-level security')) {
+          setBucketError('Storage bucket permissions not configured. Please run the RLS policy setup SQL in your Supabase dashboard.');
+        } else {
+          setBucketError(`Storage configuration error: ${listError.message}`);
         }
-
-        // Clean up test file
-        await supabase.storage.from('persona-content').remove([testPath]);
-      } catch (testError) {
-        console.error('Bucket test error:', testError);
-        setBucketError('Error testing bucket access. Please check your Supabase configuration.');
         setBucketChecked(true);
         return false;
       }
