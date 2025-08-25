@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase, Persona } from '../lib/supabase'
 import { useAuth } from './useAuth'
+import toast from 'react-hot-toast'
 
 export function usePersonas() {
   const { user } = useAuth()
@@ -15,6 +16,14 @@ export function usePersonas() {
 
   const fetchPersonas = async () => {
     try {
+      // Check if Supabase is configured
+      if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+        console.error('Supabase environment variables not configured');
+        toast.error('Database not configured. Please check your environment variables.');
+        setLoading(false);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('personas')
         .select('*')
@@ -24,6 +33,15 @@ export function usePersonas() {
       setPersonas(data || [])
     } catch (error) {
       console.error('Error fetching personas:', error)
+      
+      // Handle specific error types
+      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+        toast.error('Unable to connect to database. Please check your internet connection and Supabase configuration.');
+      } else if (error.message?.includes('relation') && error.message?.includes('does not exist')) {
+        toast.error('Database tables not found. Please run the database migration first.');
+      } else {
+        toast.error('Failed to load personas. Please try again.');
+      }
     } finally {
       setLoading(false)
     }
