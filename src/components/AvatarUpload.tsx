@@ -150,6 +150,8 @@ export function AvatarUpload({ personaId, personaName, onAvatarCreated }: Avatar
             ? { ...item, status: 'completed' }
             : item
         )
+      );
+      
       // Update persona with enhanced metadata
       const { error: updateError } = await supabase
         .from('personas')
@@ -190,7 +192,7 @@ export function AvatarUpload({ personaId, personaName, onAvatarCreated }: Avatar
         const { error: contentError } = await supabase
           .from('persona_content')
           .insert(contentInserts);
-      const { error: updateError } = await supabase
+        
         if (contentError) {
           console.error('Error saving content metadata:', contentError);
         }
