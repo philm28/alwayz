@@ -25,7 +25,7 @@ export function usePersonas() {
       }
 
       const { data, error } = await supabase
-        .from('personas')
+        .from('persona-content')
         .select('*')
         .order('created_at', { ascending: false })
 
