@@ -18,28 +18,48 @@ export class RealisticAvatarManager {
   async initializePersona(
     personaId: string,
     name: string,
-    referencePhoto: string,
+    referencePhoto?: string,
     referenceVideo?: string,
     voiceSamples?: string[]
   ): Promise<RealisticPersona> {
     try {
+      // Get uploaded content from database
+      const { data: uploadedContent } = await supabase
+        .from('persona-content')
+        .select('*')
+        .eq('persona_id', personaId)
+        .eq('processing_status', 'completed');
+
+      // Find the best avatar content from uploads
+      const photoContent = uploadedContent?.find(c => c.content_type === 'image') || 
+                          uploadedContent?.find(c => c.file_name?.match(/\.(jpg|jpeg|png|gif)$/i));
+      const videoContent = uploadedContent?.find(c => c.content_type === 'video') ||
+                          uploadedContent?.find(c => c.file_name?.match(/\.(mp4|mov|avi)$/i));
+      const audioContent = uploadedContent?.filter(c => c.content_type === 'audio' ||
+                          c.file_name?.match(/\.(mp3|wav|m4a)$/i));
+
+      // Use uploaded content or fallback to provided URLs
+      const finalPhotoUrl = photoContent?.file_url || referencePhoto;
+      const finalVideoUrl = videoContent?.file_url || referenceVideo;
+      const finalVoiceSamples = audioContent?.map(a => a.file_url) || voiceSamples || [];
+
       // Create avatar engine
       const avatarEngine = new AvatarEngine({
         personaId,
-        photoUrl: referencePhoto,
-        videoUrl: referenceVideo,
+        photoUrl: finalPhotoUrl,
+        videoUrl: finalVideoUrl,
         lipSyncEnabled: true,
         emotionMapping: true
       });
 
       // Load reference video if available
-      if (referenceVideo) {
-        await avatarEngine.loadPersonaVideo(referenceVideo);
+      if (finalVideoUrl) {
+        await avatarEngine.loadPersonaVideo(finalVideoUrl);
       }
 
       // Initialize voice profile if samples available
       let isVoiceReady = false;
-      if (voiceSamples && voiceSamples.length > 0) {
+      if (finalVoiceSamples && finalVoiceSamples.length > 0) {
         // In production, load actual audio files and create voice profile
         isVoiceReady = true;
       }
@@ -48,7 +68,7 @@ export class RealisticAvatarManager {
         id: personaId,
         name,
         avatarEngine,
-        isVideoReady: !!referenceVideo,
+        isVideoReady: !!finalVideoUrl,
         isVoiceReady,
         currentEmotion: 'neutral'
       };

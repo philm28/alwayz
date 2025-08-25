@@ -37,24 +37,31 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
   const initializeRealisticCall = async () => {
     try {
       // Get persona data from database
-      const { data: persona } = await supabase
+      const { data: persona, error: personaError } = await supabase
         .from('personas')
         .select('*')
         .eq('id', personaId)
         .single();
 
-      if (!persona) {
+      if (personaError || !persona) {
+        console.error('Persona not found:', personaError);
         throw new Error('Persona not found');
       }
+
+      console.log('Initializing realistic call for persona:', persona.name);
 
       // Initialize realistic avatar
       const realisticPersona = await realisticAvatarManager.initializePersona(
         personaId,
         personaName,
-        persona.avatar_url || '',
-        persona.metadata?.video_avatar_url,
-        persona.metadata?.voice_profile?.sampleAudioUrls
+        persona.avatar_url,
+        persona.metadata?.video_avatar_url
       );
+
+      console.log('Realistic persona initialized:', {
+        isVideoReady: realisticPersona.isVideoReady,
+        isVoiceReady: realisticPersona.isVoiceReady
+      });
 
       // Set up avatar canvas
       if (avatarCanvasRef.current && realisticPersona.avatarEngine.getCanvas()) {
@@ -68,6 +75,8 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
             ctx.drawImage(avatarCanvas, 0, 0);
           }
         }
+      } else {
+        console.log('Avatar canvas not ready or no avatar engine canvas available');
       }
 
       // Simulate connection
@@ -78,6 +87,9 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
 
     } catch (error) {
       console.error('Error initializing realistic call:', error);
+      // Fallback to basic avatar if realistic avatar fails
+      setIsConnected(true);
+      generateGreeting();
     }
   };
 
