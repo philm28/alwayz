@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, Video, VideoOff, Phone, Volume2, VolumeX } from 'lucide-react';
 import { realisticAvatarManager } from '../lib/realisticAvatar';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import Webcam from 'react-webcam';
 
@@ -18,6 +19,8 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
   const [callDuration, setCallDuration] = useState(0);
   const [isPersonaSpeaking, setIsPersonaSpeaking] = useState(false);
   const [currentMessage, setCurrentMessage] = useState('');
+  const [personaData, setPersonaData] = useState<any>(null);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
   
   const webcamRef = useRef<Webcam>(null);
   const avatarCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -45,38 +48,43 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
 
       if (personaError || !persona) {
         console.error('Persona not found:', personaError);
-        throw new Error('Persona not found');
+        setAvatarError('Persona not found');
+        return;
       }
 
+      setPersonaData(persona);
       console.log('Initializing realistic call for persona:', persona.name);
 
-      // Initialize realistic avatar
-      const realisticPersona = await realisticAvatarManager.initializePersona(
-        personaId,
-        personaName,
-        persona.avatar_url,
-        persona.metadata?.video_avatar_url
-      );
+      // Try to initialize realistic avatar, but don't fail if it doesn't work
+      try {
+        const realisticPersona = await realisticAvatarManager.initializePersona(
+          personaId,
+          personaName,
+          persona.avatar_url,
+          persona.metadata?.video_avatar_url
+        );
 
-      console.log('Realistic persona initialized:', {
-        isVideoReady: realisticPersona.isVideoReady,
-        isVoiceReady: realisticPersona.isVoiceReady
-      });
+        console.log('Realistic persona initialized:', {
+          isVideoReady: realisticPersona.isVideoReady,
+          isVoiceReady: realisticPersona.isVoiceReady
+        });
 
-      // Set up avatar canvas
-      if (avatarCanvasRef.current && realisticPersona.avatarEngine.getCanvas()) {
-        const avatarCanvas = realisticPersona.avatarEngine.getCanvas();
-        if (avatarCanvas) {
-          avatarCanvasRef.current.width = avatarCanvas.width;
-          avatarCanvasRef.current.height = avatarCanvas.height;
-          
-          const ctx = avatarCanvasRef.current.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(avatarCanvas, 0, 0);
+        // Set up avatar canvas
+        if (avatarCanvasRef.current && realisticPersona.avatarEngine.getCanvas()) {
+          const avatarCanvas = realisticPersona.avatarEngine.getCanvas();
+          if (avatarCanvas) {
+            avatarCanvasRef.current.width = avatarCanvas.width;
+            avatarCanvasRef.current.height = avatarCanvas.height;
+            
+            const ctx = avatarCanvasRef.current.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(avatarCanvas, 0, 0);
+            }
           }
         }
-      } else {
-        console.log('Avatar canvas not ready or no avatar engine canvas available');
+      } catch (avatarError) {
+        console.warn('Realistic avatar initialization failed, using fallback:', avatarError);
+        setAvatarError('Using fallback avatar display');
       }
 
       // Simulate connection
@@ -87,7 +95,8 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
 
     } catch (error) {
       console.error('Error initializing realistic call:', error);
-      // Fallback to basic avatar if realistic avatar fails
+      setAvatarError('Failed to initialize call');
+      // Still allow connection for basic functionality
       setIsConnected(true);
       generateGreeting();
     }
@@ -196,9 +205,30 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
     // Display user message briefly
     console.log('User said:', userMessage);
 
-    // Generate and speak persona response
-    setTimeout(() => {
-      speakMessage(userMessage);
+    // Generate persona response
+    setTimeout(async () => {
+      try {
+        // Generate AI response using the AI engine
+        const { AIPersonaEngine } = await import('../lib/ai');
+        
+        const personaContext = {
+          id: personaData?.id || personaId,
+          name: personaData?.name || personaName,
+          personality_traits: personaData?.personality_traits || 'Warm and caring',
+          common_phrases: personaData?.common_phrases || [],
+          relationship: personaData?.relationship || 'Loved one',
+          memories: [],
+          conversationHistory: []
+        };
+
+        const aiEngine = new AIPersonaEngine(personaContext);
+        const response = await aiEngine.generateResponse(userMessage);
+        
+        await speakMessage(response);
+      } catch (error) {
+        console.error('Error generating response:', error);
+        await speakMessage("I'm having trouble finding the right words right now. Could you try asking me again?");
+      }
     }, 1000);
   };
 
@@ -230,25 +260,45 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
         <div className="absolute inset-0 flex items-center justify-center">
           {isConnected ? (
             <div className="relative w-full h-full">
-              {/* Realistic Avatar Canvas */}
-              <canvas
-                ref={avatarCanvasRef}
-                className="w-full h-full object-cover"
-                style={{ 
-                  filter: isPersonaSpeaking ? 'brightness(1.1)' : 'brightness(1)',
-                  transition: 'filter 0.3s ease'
-                }}
-              />
-              
-              {/* Fallback if no avatar video */}
-              {!avatarCanvasRef.current && (
+              {/* Try to show realistic avatar canvas first */}
+              {avatarCanvasRef.current && !avatarError ? (
+                <canvas
+                  ref={avatarCanvasRef}
+                  className="w-full h-full object-cover"
+                  style={{ 
+                    filter: isPersonaSpeaking ? 'brightness(1.1)' : 'brightness(1)',
+                    transition: 'filter 0.3s ease'
+                  }}
+                />
+              ) : (
+                /* Fallback avatar display */
                 <div className="w-full h-full bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center">
                   <div className="text-center text-white">
-                    <div className={`w-48 h-48 bg-gradient-to-br from-purple-400 to-blue-400 rounded-full mx-auto mb-6 flex items-center justify-center transition-all duration-300 ${
-                      isPersonaSpeaking ? 'scale-110 shadow-2xl' : ''
-                    }`}>
-                      <span className="text-6xl font-bold">{personaName[0]}</span>
-                    </div>
+                    {personaData?.avatar_url ? (
+                      <div className={`w-48 h-48 mx-auto mb-6 rounded-full overflow-hidden border-4 border-white/20 transition-all duration-300 ${
+                        isPersonaSpeaking ? 'scale-110 shadow-2xl' : ''
+                      }`}>
+                        <img 
+                          src={personaData.avatar_url} 
+                          alt={personaName}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            // Fallback to initials if image fails to load
+                            e.currentTarget.style.display = 'none';
+                            e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                          }}
+                        />
+                        <div className={`w-full h-full bg-gradient-to-br from-purple-400 to-blue-400 flex items-center justify-center hidden`}>
+                          <span className="text-6xl font-bold">{personaName[0]}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={`w-48 h-48 bg-gradient-to-br from-purple-400 to-blue-400 rounded-full mx-auto mb-6 flex items-center justify-center transition-all duration-300 ${
+                        isPersonaSpeaking ? 'scale-110 shadow-2xl' : ''
+                      }`}>
+                        <span className="text-6xl font-bold">{personaName[0]}</span>
+                      </div>
+                    )}
                     <h2 className="text-3xl font-semibold mb-2">{personaName}</h2>
                     <div className="flex items-center justify-center space-x-2">
                       <div className={`w-3 h-3 rounded-full ${isPersonaSpeaking ? 'bg-green-400 animate-pulse' : 'bg-gray-400'}`}></div>
@@ -256,6 +306,11 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
                         {isPersonaSpeaking ? 'Speaking...' : 'Listening'}
                       </span>
                     </div>
+                    {avatarError && (
+                      <p className="text-sm text-yellow-300 mt-2">
+                        {avatarError}
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
