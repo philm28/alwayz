@@ -95,26 +95,35 @@ export function AvatarUpload({ personaId, personaName, onAvatarCreated }: Avatar
           await voiceCloning.cloneVoiceFromSamples(personaId);
         }
       }
-      const { error: updateError } = await supabase
       // Mark all as completed
       setUploadedMedia(prev => 
-          avatar_url: uploadResults.photos[0] || uploadResults.videos[0],
+        prev.map(item => 
           media.find(m => m.id === item.id) 
-            video_avatar_url: uploadResults.videos[0],
-            voice_samples: uploadResults.audioSamples,
+            ? { ...item, status: 'completed' }
             : item
-            avatar_created_at: new Date().toISOString(),
-            has_realistic_avatar: true
+        )
       );
+
+      // Update persona in database
+      const { error: updateError } = await supabase
+        .from('personas')
+        .update({
+          avatar_url: uploadResults.photos[0] || uploadResults.videos[0],
+          video_avatar_url: uploadResults.videos[0],
+          voice_samples: uploadResults.audioSamples,
+          avatar_created_at: new Date().toISOString(),
+          has_realistic_avatar: true
+        })
+        .eq('id', personaId);
 
       toast.success('Avatar training completed! Your persona now has realistic video and voice.');
       onAvatarCreated?.(uploadResults.photos[0] || uploadResults.videos[0] || '');
+      
       if (updateError) {
         console.error('Error updating persona with avatar info:', updateError);
       }
 
       console.log('Persona updated with avatar information');
-      return uploadResults.photos[0] || uploadResults.videos[0] || '';
     } catch (error) {
       console.error('Error processing uploads:', error);
       toast.error('Failed to process avatar media');
