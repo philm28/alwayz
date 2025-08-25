@@ -470,7 +470,53 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
         style={{ display: 'none' }} 
         preload="auto"
         onError={(e) => {
-          console.error('Audio playback error:', e);
+          const audioElement = e.target as HTMLAudioElement;
+          const error = audioElement.error;
+          
+          let errorMessage = 'Unknown audio error';
+          if (error) {
+            switch (error.code) {
+              case MediaError.MEDIA_ERR_ABORTED:
+                errorMessage = 'Audio playback was aborted';
+                break;
+              case MediaError.MEDIA_ERR_NETWORK:
+                errorMessage = 'Network error occurred while loading audio';
+                break;
+              case MediaError.MEDIA_ERR_DECODE:
+                errorMessage = 'Audio decoding error';
+                break;
+              case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+                errorMessage = 'Audio format not supported';
+                break;
+              default:
+                errorMessage = `Audio error code: ${error.code}`;
+            }
+          }
+          
+          console.error('Audio playback error:', errorMessage, e);
+          
+          // Reset speaking state
+          setIsPersonaSpeaking(false);
+          
+          // Fallback to speech synthesis if available and there's text to speak
+          if (lastResponse && 'speechSynthesis' in window) {
+            console.log('Falling back to speech synthesis');
+            const utterance = new SpeechSynthesisUtterance(lastResponse);
+            utterance.rate = 0.9;
+            utterance.pitch = 1.0;
+            utterance.volume = isSpeakerOn ? 1.0 : 0.0;
+            
+            utterance.onend = () => {
+              setIsPersonaSpeaking(false);
+            };
+            
+            utterance.onerror = () => {
+              console.error('Speech synthesis also failed');
+              setIsPersonaSpeaking(false);
+            };
+            
+            speechSynthesis.speak(utterance);
+          }
         }}
         onCanPlay={() => {
           console.log('Audio ready to play');
