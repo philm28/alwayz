@@ -23,33 +23,54 @@ export class RealisticAvatarManager {
     voiceSamples?: string[]
   ): Promise<RealisticPersona> {
     try {
-      // Get uploaded content from database
-      const { data: uploadedContent } = await supabase
-        .from('persona-content')
-        .select('*')
-        .eq('persona_id', personaId)
-        .eq('processing_status', 'completed');
+      console.log('Initializing realistic persona:', { personaId, name, referencePhoto, referenceVideo, voiceSamples });
+      
+      // Get persona data and uploaded content
+      const [personaResponse, contentResponse] = await Promise.all([
+        supabase.from('personas').select('*').eq('id', personaId).single(),
+        supabase.from('persona_content').select('*').eq('persona_id', personaId).eq('processing_status', 'completed')
+      ]);
 
-      // Find the best avatar content from uploads
-      const photoContent = uploadedContent?.find(c => c.content_type === 'image') || 
-                          uploadedContent?.find(c => c.file_name?.match(/\.(jpg|jpeg|png|gif)$/i));
-      const videoContent = uploadedContent?.find(c => c.content_type === 'video') ||
-                          uploadedContent?.find(c => c.file_name?.match(/\.(mp4|mov|avi)$/i));
-      const audioContent = uploadedContent?.filter(c => c.content_type === 'audio' ||
-                          c.file_name?.match(/\.(mp3|wav|m4a)$/i));
+      const personaData = personaResponse.data;
+      const uploadedContent = contentResponse.data || [];
 
-      // Use uploaded content or fallback to provided URLs
-      const finalPhotoUrl = photoContent?.file_url || referencePhoto;
-      const finalVideoUrl = videoContent?.file_url || referenceVideo;
-      const finalVoiceSamples = audioContent?.map(a => a.file_url) || voiceSamples || [];
+      // Organize content by type
+      const photos = uploadedContent
+        .filter(c => c.content_type === 'image' || c.file_name?.match(/\.(jpg|jpeg|png|gif)$/i))
+        .map(c => c.file_url)
+        .filter(Boolean);
+      
+      const videos = uploadedContent
+        .filter(c => c.content_type === 'video' || c.file_name?.match(/\.(mp4|mov|avi)$/i))
+        .map(c => c.file_url)
+        .filter(Boolean);
+      
+      const audioSamples = uploadedContent
+        .filter(c => c.content_type === 'audio' || c.file_name?.match(/\.(mp3|wav|m4a)$/i))
+        .map(c => c.file_url)
+        .filter(Boolean);
+
+      // Use uploaded content with fallbacks
+      const finalPhotoUrls = photos.length > 0 ? photos : (referencePhoto ? [referencePhoto] : []);
+      const finalVideoUrl = videos[0] || referenceVideo;
+      const finalVoiceSamples = audioSamples.length > 0 ? audioSamples : (voiceSamples || []);
+
+      console.log('Content summary:', {
+        photos: finalPhotoUrls.length,
+        videos: videos.length,
+        audioSamples: finalVoiceSamples.length
+      });
 
       // Create avatar engine
       const avatarEngine = new AvatarEngine({
         personaId,
-        photoUrl: finalPhotoUrl,
+        photoUrl: finalPhotoUrls[0],
+        photoUrls: finalPhotoUrls,
         videoUrl: finalVideoUrl,
         lipSyncEnabled: true,
-        emotionMapping: true
+        emotionMapping: true,
+        faceMapping: finalPhotoUrls.length > 1,
+        expressionRange: ['neutral', 'happy', 'speaking', 'surprised']
       });
 
       // Load reference video if available
@@ -59,16 +80,36 @@ export class RealisticAvatarManager {
 
       // Initialize voice profile if samples available
       let isVoiceReady = false;
-      if (finalVoiceSamples && finalVoiceSamples.length > 0) {
-        // In production, load actual audio files and create voice profile
-        isVoiceReady = true;
+      if (finalVoiceSamples.length > 0) {
+        try {
+          // Convert URLs to File objects for voice cloning
+          const audioFiles = await Promise.all(
+            finalVoiceSamples.slice(0, 5).map(async (url) => {
+              const response = await fetch(url);
+              const blob = await response.blob();
+              return new File([blob], `voice-sample-${Date.now()}.mp3`, { type: 'audio/mpeg' });
+            })
+          );
+          
+          // Create voice profile with persona metadata
+          await voiceCloning.createVoiceProfile(personaId, audioFiles, {
+            gender: personaData?.metadata?.gender,
+            age: personaData?.metadata?.age,
+            personality: personaData?.personality_traits
+          });
+          
+          isVoiceReady = true;
+          console.log('Voice profile created successfully');
+        } catch (voiceError) {
+          console.warn('Voice profile creation failed:', voiceError);
+        }
       }
 
       const persona: RealisticPersona = {
         id: personaId,
         name,
         avatarEngine,
-        isVideoReady: !!finalVideoUrl,
+        isVideoReady: finalPhotoUrls.length > 0 || !!finalVideoUrl,
         isVoiceReady,
         currentEmotion: 'neutral'
       };
