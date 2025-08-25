@@ -664,6 +664,24 @@ function App() {
                   />
                 </div>
               )}
+              
+              {/* Avatar Creation Section */}
+              <div className="bg-white rounded-2xl shadow-sm p-6">
+                <div className="flex items-center mb-4">
+                  <User className="h-6 w-6 text-purple-600 mr-3" />
+                  <h2 className="text-xl font-semibold text-gray-900">Create Realistic Avatar</h2>
+                </div>
+                <p className="text-gray-600 mb-6">
+                  Upload photos and videos to create a lifelike avatar that looks and moves like {selectedPersona?.name}
+                </p>
+                <button
+                  onClick={() => setCurrentView('avatar-setup')}
+                  className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-3 px-6 rounded-lg font-semibold hover:shadow-lg transition-all duration-300 flex items-center justify-center"
+                >
+                  <User className="h-5 w-5 mr-2" />
+                  Create Realistic Avatar
+                </button>
+              </div>
             </div>
 
             {/* Training Section */}
