@@ -26,6 +26,8 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
   const [speechRecognition, setSpeechRecognition] = useState<SpeechRecognition | null>(null);
   const [transcript, setTranscript] = useState('');
   const [autoListenEnabled, setAutoListenEnabled] = useState(false);
+  const [isProcessingResponse, setIsProcessingResponse] = useState(false);
+  const [lastUserInput, setLastUserInput] = useState('');
   
   const webcamRef = useRef<Webcam>(null);
   const avatarContainerRef = useRef<HTMLDivElement>(null);
@@ -80,7 +82,10 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
 
       if (finalTranscript) {
         console.log('Final transcript:', finalTranscript);
-        handleSpokenMessage(finalTranscript);
+        // Only process if we're not already processing and it's different from last input
+        if (!isProcessingResponse && finalTranscript.trim() !== lastUserInput.trim()) {
+          handleSpokenMessage(finalTranscript);
+        }
         setTranscript('');
       }
     };
@@ -121,6 +126,20 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
 
   const handleSpokenMessage = async (spokenText: string) => {
     if (!spokenText.trim()) return;
+    
+    // Prevent processing multiple messages at once
+    if (isProcessingResponse) {
+      console.log('Already processing a response, ignoring new input');
+      return;
+    }
+    
+    setIsProcessingResponse(true);
+    setLastUserInput(spokenText);
+    
+    // Stop listening while processing response
+    if (speechRecognition && isListening) {
+      speechRecognition.stop();
+    }
 
     console.log('User spoke:', spokenText);
 
@@ -146,6 +165,8 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
     } catch (error) {
       console.error('Error generating response to speech:', error);
       await speakMessage("I'm sorry, I didn't quite catch that. Could you try saying that again?");
+    } finally {
+      setIsProcessingResponse(false);
     }
   };
 
@@ -325,15 +346,16 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
               avatarEngineRef.current.setExpression('neutral', 0);
             }
             
-            // Auto-restart speech recognition after audio ends
-            if (autoListenEnabled && speechRecognition && !isListening) {
+            // Auto-restart speech recognition after audio ends, but only if not processing
+            if (autoListenEnabled && speechRecognition && !isListening && !isProcessingResponse) {
               setTimeout(() => {
                 try {
+                  setIsProcessingResponse(false); // Reset processing state
                   speechRecognition.start();
                 } catch (error) {
                   console.warn('Could not restart speech recognition:', error);
                 }
-              }, 500);
+              }, 1000); // Longer delay to prevent immediate restart
             }
             
             URL.revokeObjectURL(audioUrl);
@@ -395,15 +417,16 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
             avatarEngineRef.current.setExpression('neutral', 0);
           }
           
-          // Auto-restart speech recognition after persona finishes speaking
-          if (autoListenEnabled && speechRecognition && !isListening) {
+          // Auto-restart speech recognition after persona finishes speaking, but only if not processing
+          if (autoListenEnabled && speechRecognition && !isListening && !isProcessingResponse) {
             setTimeout(() => {
               try {
+                setIsProcessingResponse(false); // Reset processing state
                 speechRecognition.start();
               } catch (error) {
                 console.warn('Could not restart speech recognition:', error);
               }
-            }, 500);
+            }, 1000); // Longer delay
           }
           
           resolve();
@@ -413,15 +436,16 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
           console.error('Speech synthesis also failed');
           setIsPersonaSpeaking(false);
           
-          // Auto-restart speech recognition even if speech synthesis fails
-          if (autoListenEnabled && speechRecognition && !isListening) {
+          // Auto-restart speech recognition even if speech synthesis fails, but only if not processing
+          if (autoListenEnabled && speechRecognition && !isListening && !isProcessingResponse) {
             setTimeout(() => {
               try {
+                setIsProcessingResponse(false); // Reset processing state
                 speechRecognition.start();
               } catch (error) {
                 console.warn('Could not restart speech recognition:', error);
               }
-            }, 500);
+            }, 1000); // Longer delay
           }
           
           if (avatarEngineRef.current) {
@@ -782,9 +806,14 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
           <div className="text-center mt-4">
             <div className="bg-white/20 backdrop-blur rounded-full px-4 py-2 inline-block">
               <div className="flex items-center space-x-2">
-                <div className={`w-2 h-2 rounded-full ${isListening ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`}></div>
+                <div className={`w-2 h-2 rounded-full ${
+                  isProcessingResponse ? 'bg-blue-400 animate-pulse' :
+                  isPersonaSpeaking ? 'bg-yellow-400' :
+                  isListening ? 'bg-green-400 animate-pulse' : 'bg-gray-400'
+                }`}></div>
                 <span className="text-white text-sm">
-                  {isPersonaSpeaking ? 'Speaking...' : 
+                  {isProcessingResponse ? 'Thinking...' :
+                   isPersonaSpeaking ? 'Speaking...' : 
                    isListening ? (transcript || 'Listening...') : 
                    'Voice conversation active'}
                 </span>
