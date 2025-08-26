@@ -352,9 +352,6 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
         } else {
           reject(new Error('Audio element not available'));
         }
-      } catch (error) {
-        reject(error);
-      }
     });
   };
 
