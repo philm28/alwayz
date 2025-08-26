@@ -25,6 +25,7 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
   const [isListening, setIsListening] = useState(false);
   const [speechRecognition, setSpeechRecognition] = useState<SpeechRecognition | null>(null);
   const [transcript, setTranscript] = useState('');
+  const [autoListenEnabled, setAutoListenEnabled] = useState(false);
   
   const webcamRef = useRef<Webcam>(null);
   const avatarContainerRef = useRef<HTMLDivElement>(null);
@@ -110,9 +111,11 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
     if (isListening) {
       speechRecognition.stop();
       setIsListening(false);
+      setAutoListenEnabled(false);
     } else {
       speechRecognition.start();
       setIsListening(true);
+      setAutoListenEnabled(true);
     }
   };
 
@@ -321,6 +324,18 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
             if (avatarEngineRef.current) {
               avatarEngineRef.current.setExpression('neutral', 0);
             }
+            
+            // Auto-restart speech recognition after audio ends
+            if (autoListenEnabled && speechRecognition && !isListening) {
+              setTimeout(() => {
+                try {
+                  speechRecognition.start();
+                } catch (error) {
+                  console.warn('Could not restart speech recognition:', error);
+                }
+              }, 500);
+            }
+            
             URL.revokeObjectURL(audioUrl);
             resolve();
           };
@@ -379,12 +394,36 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
           if (avatarEngineRef.current) {
             avatarEngineRef.current.setExpression('neutral', 0);
           }
+          
+          // Auto-restart speech recognition after persona finishes speaking
+          if (autoListenEnabled && speechRecognition && !isListening) {
+            setTimeout(() => {
+              try {
+                speechRecognition.start();
+              } catch (error) {
+                console.warn('Could not restart speech recognition:', error);
+              }
+            }, 500);
+          }
+          
           resolve();
         };
         
         utterance.onerror = () => {
           console.error('Speech synthesis also failed');
           setIsPersonaSpeaking(false);
+          
+          // Auto-restart speech recognition even if speech synthesis fails
+          if (autoListenEnabled && speechRecognition && !isListening) {
+            setTimeout(() => {
+              try {
+                speechRecognition.start();
+              } catch (error) {
+                console.warn('Could not restart speech recognition:', error);
+              }
+            }, 500);
+          }
+          
           if (avatarEngineRef.current) {
             avatarEngineRef.current.setExpression('neutral', 0);
           }
@@ -699,11 +738,11 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
           <button
             onClick={toggleSpeechRecognition}
             className={`p-4 rounded-full transition-all duration-300 ${
-              isListening 
-                ? 'bg-green-500 hover:bg-green-600 animate-pulse' 
+              autoListenEnabled 
+                ? 'bg-green-500 hover:bg-green-600' + (isListening ? ' animate-pulse' : '')
                 : 'bg-white/20 hover:bg-white/30 backdrop-blur'
             }`}
-            title={isListening ? 'Stop listening' : 'Start voice input'}
+            title={autoListenEnabled ? 'Stop voice conversation' : 'Start voice conversation'}
           >
             <Mic className={`h-6 w-6 text-white ${isListening ? 'animate-pulse' : ''}`} />
           </button>
@@ -739,13 +778,15 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
         </div>
         
         {/* Speech Recognition Status */}
-        {isListening && (
+        {autoListenEnabled && (
           <div className="text-center mt-4">
             <div className="bg-white/20 backdrop-blur rounded-full px-4 py-2 inline-block">
               <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                <div className={`w-2 h-2 rounded-full ${isListening ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`}></div>
                 <span className="text-white text-sm">
-                  {transcript || 'Listening...'}
+                  {isPersonaSpeaking ? 'Speaking...' : 
+                   isListening ? (transcript || 'Listening...') : 
+                   'Voice conversation active'}
                 </span>
               </div>
             </div>
