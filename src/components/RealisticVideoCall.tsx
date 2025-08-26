@@ -164,14 +164,14 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
           }
           
           // Play the audio
-          await this.playAudioWithLipSync(audioBuffer);
+          await playAudioWithLipSync(audioBuffer);
         } catch (voiceError) {
           console.warn('Voice generation failed, using text-to-speech fallback:', voiceError);
-          await this.fallbackToSpeechSynthesis(text);
+          await fallbackToSpeechSynthesis(text);
         }
       } catch (aiError) {
         console.error('AI engine error:', aiError);
-        await this.fallbackToSpeechSynthesis(text);
+        await fallbackToSpeechSynthesis(text);
       }
     } catch (error) {
       console.error('Error speaking message:', error);
@@ -190,7 +190,7 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
         // Check if audioBuffer is valid and not empty
         if (!audioBuffer || audioBuffer.byteLength === 0) {
           console.warn('Audio buffer is empty or invalid, falling back to speech synthesis');
-          this.fallbackToSpeechSynthesis(lastResponse).then(resolve).catch(reject);
+          fallbackToSpeechSynthesis(lastResponse).then(resolve).catch(reject);
           return;
         }
 
@@ -199,7 +199,7 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
         // Validate the blob
         if (audioBlob.size === 0) {
           console.warn('Audio blob is empty, falling back to speech synthesis');
-          this.fallbackToSpeechSynthesis(lastResponse).then(resolve).catch(reject);
+          fallbackToSpeechSynthesis(lastResponse).then(resolve).catch(reject);
           return;
         }
         
@@ -221,7 +221,7 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
           audioRef.current.onerror = () => {
             console.error('Audio playback failed, falling back to speech synthesis');
             URL.revokeObjectURL(audioUrl);
-            this.fallbackToSpeechSynthesis(lastResponse).then(resolve).catch(reject);
+            fallbackToSpeechSynthesis(lastResponse).then(resolve).catch(reject);
           };
           
           // Play audio
@@ -229,7 +229,7 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
           if (playPromise) {
             playPromise.catch((error) => {
               console.warn('Audio autoplay prevented:', error);
-              this.fallbackToSpeechSynthesis(lastResponse).then(resolve).catch(reject);
+              fallbackToSpeechSynthesis(lastResponse).then(resolve).catch(reject);
             });
           }
         } else {

@@ -1,6 +1,8 @@
 import { supabase } from './supabase';
 import { captureException } from './monitoring';
 
+import { supabase } from './supabase';
+
 export interface AvatarConfig {
   personaId: string;
   videoUrl?: string;
@@ -58,9 +60,31 @@ export class AvatarEngine {
     if (this.photoUrls.length === 0) return;
 
     try {
-      // Load the primary photo
+      // Download the primary photo using authenticated Supabase request
+      const primaryPhotoUrl = this.photoUrls[0];
+      
+      // Extract the file path from the URL
+      const urlParts = primaryPhotoUrl.split('/storage/v1/object/public/persona-content/');
+      if (urlParts.length < 2) {
+        throw new Error('Invalid photo URL format');
+      }
+      const filePath = urlParts[1];
+      
+      // Download the image with authentication
+      const { data: imageBlob, error: downloadError } = await supabase.storage
+        .from('persona-content')
+        .download(filePath);
+      
+      if (downloadError) {
+        console.error('Failed to download persona photo:', downloadError);
+        throw downloadError;
+      }
+      
+      // Create object URL from the downloaded blob
+      const imageObjectUrl = URL.createObjectURL(imageBlob);
+      
+      // Load the image
       this.baseImage = new Image();
-      this.baseImage.crossOrigin = 'anonymous';
       
       await new Promise((resolve, reject) => {
         this.baseImage!.onload = () => {
@@ -71,11 +95,16 @@ export class AvatarEngine {
           } else {
             console.error('Image loaded but has invalid dimensions');
             this.baseImage = null;
+            URL.revokeObjectURL(imageObjectUrl);
             reject(new Error('Invalid image dimensions'));
           }
         };
-        this.baseImage!.onerror = reject;
-        this.baseImage!.src = this.photoUrls[0];
+        this.baseImage!.onerror = () => {
+          console.error('Failed to load image from blob');
+          URL.revokeObjectURL(imageObjectUrl);
+          reject(new Error('Failed to load image'));
+        };
+        this.baseImage!.src = imageObjectUrl;
       });
 
       // Analyze face if we have multiple photos
