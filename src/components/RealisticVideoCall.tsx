@@ -21,13 +21,6 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
   const [currentMessage, setCurrentMessage] = useState('');
   const [personaData, setPersonaData] = useState<any>(null);
   const [avatarError, setAvatarError] = useState<string | null>(null);
-  const [lastResponse, setLastResponse] = useState<string>('');
-  const [isListening, setIsListening] = useState(false);
-  const [speechRecognition, setSpeechRecognition] = useState<SpeechRecognition | null>(null);
-  const [transcript, setTranscript] = useState('');
-  const [autoListenEnabled, setAutoListenEnabled] = useState(false);
-  const [isProcessingResponse, setIsProcessingResponse] = useState(false);
-  const [lastUserInput, setLastUserInput] = useState('');
   
   const webcamRef = useRef<Webcam>(null);
   const avatarContainerRef = useRef<HTMLDivElement>(null);
@@ -39,134 +32,11 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
   useEffect(() => {
     initializeRealisticCall();
     startCallTimer();
-    initializeSpeechRecognition();
 
     return () => {
       cleanup();
     };
   }, []);
-
-  const initializeSpeechRecognition = () => {
-    // Check if speech recognition is supported
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    
-    if (!SpeechRecognition) {
-      console.warn('Speech recognition not supported in this browser');
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
-
-    recognition.onstart = () => {
-      console.log('Speech recognition started');
-      setIsListening(true);
-    };
-
-    recognition.onresult = (event) => {
-      let finalTranscript = '';
-      let interimTranscript = '';
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalTranscript += transcript;
-        } else {
-          interimTranscript += transcript;
-        }
-      }
-
-      setTranscript(interimTranscript);
-
-      if (finalTranscript) {
-        console.log('Final transcript:', finalTranscript);
-        // Only process if we're not already processing and it's different from last input
-        if (!isProcessingResponse && finalTranscript.trim() !== lastUserInput.trim()) {
-          handleSpokenMessage(finalTranscript);
-        }
-        setTranscript('');
-      }
-    };
-
-    recognition.onerror = (event) => {
-      console.error('Speech recognition error:', event.error);
-      setIsListening(false);
-      
-      if (event.error === 'not-allowed') {
-        alert('Microphone access denied. Please allow microphone access to speak with your persona.');
-      }
-    };
-
-    recognition.onend = () => {
-      console.log('Speech recognition ended');
-      setIsListening(false);
-    };
-
-    setSpeechRecognition(recognition);
-  };
-
-  const toggleSpeechRecognition = () => {
-    if (!speechRecognition) {
-      alert('Speech recognition not supported in this browser');
-      return;
-    }
-
-    if (isListening) {
-      speechRecognition.stop();
-      setIsListening(false);
-    } else {
-      speechRecognition.start();
-      setIsListening(true);
-    }
-  };
-
-  const handleSpokenMessage = async (spokenText: string) => {
-    if (!spokenText.trim()) return;
-    
-    // Prevent processing multiple messages at once
-    if (isProcessingResponse) {
-      console.log('Already processing a response, ignoring new input');
-      return;
-    }
-    
-    setIsProcessingResponse(true);
-    setLastUserInput(spokenText);
-    
-    // Stop listening while processing response
-    if (speechRecognition && isListening) {
-      speechRecognition.stop();
-    }
-
-    console.log('User spoke:', spokenText);
-
-    // Generate persona response to spoken input
-    try {
-      const { AIPersonaEngine } = await import('../lib/ai');
-      
-      const personaContext = {
-        id: personaData?.id || personaId,
-        name: personaData?.name || personaName,
-        personality_traits: personaData?.personality_traits || 'Warm and caring',
-        common_phrases: personaData?.common_phrases || [],
-        relationship: personaData?.relationship || 'Loved one',
-        memories: [],
-        conversationHistory: []
-      };
-
-      const aiEngine = new AIPersonaEngine(personaContext);
-      const response = await aiEngine.generateResponse(spokenText);
-      
-      await speakMessage(response);
-      setLastResponse(response);
-    } catch (error) {
-      console.error('Error generating response to speech:', error);
-      await speakMessage("I'm sorry, I didn't quite catch that. Could you try saying that again?");
-    } finally {
-      setIsProcessingResponse(false);
-    }
-  };
 
   const initializeRealisticCall = async () => {
     try {
@@ -186,9 +56,8 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
       setPersonaData(persona);
       console.log('Initializing realistic call for persona:', persona.name);
 
-      // Try to initialize realistic avatar, but don't fail if it doesn't work
+      // Try to initialize realistic avatar
       try {
-        // Get all uploaded photos for this persona
         const { data: personaContent } = await supabase
           .from('persona_content')
           .select('*')
@@ -220,11 +89,6 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
           audioSamples
         );
 
-        console.log('Realistic persona initialized:', {
-          isVideoReady: realisticPersona.isVideoReady,
-          isVoiceReady: realisticPersona.isVoiceReady
-        });
-
         avatarEngineRef.current = realisticPersona.avatarEngine;
       } catch (avatarError) {
         console.warn('Realistic avatar initialization failed, using fallback:', avatarError);
@@ -241,7 +105,6 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
     } catch (error) {
       console.error('Error initializing realistic call:', error);
       setAvatarError('Failed to initialize call');
-      // Still allow connection for basic functionality
       setIsConnected(true);
       generateGreeting();
     }
@@ -250,7 +113,6 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
   const generateGreeting = async () => {
     try {
       const greeting = `Hello! It's so wonderful to see you. I've missed our conversations.`;
-      setLastResponse(greeting);
       await speakMessage(greeting);
     } catch (error) {
       console.error('Error generating greeting:', error);
@@ -260,123 +122,16 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
   const speakMessage = async (text: string, emotion?: string) => {
     try {
       setIsPersonaSpeaking(true);
-      setLastResponse(text);
       
-      // Update avatar expression if we have an avatar engine
       if (avatarEngineRef.current) {
         avatarEngineRef.current.setExpression('speaking', 1.0);
       }
       
-      // Try to generate voice using AI engine
-      try {
-        const { AIPersonaEngine } = await import('../lib/ai');
-        
-        const personaContext = {
-          id: personaData?.id || personaId,
-          name: personaData?.name || personaName,
-          personality_traits: personaData?.personality_traits || 'Warm and caring',
-          common_phrases: personaData?.common_phrases || [],
-          relationship: personaData?.relationship || 'Loved one',
-          memories: [],
-          conversationHistory: []
-        };
-
-        const aiEngine = new AIPersonaEngine(personaContext);
-        
-        // Try to generate voice
-        try {
-          const audioBuffer = await aiEngine.generateVoice(text);
-          
-          // Generate talking avatar with lip sync
-          if (avatarEngineRef.current) {
-            await avatarEngineRef.current.generateTalkingAvatar(audioBuffer, text);
-          }
-          
-          // Play the audio
-          await playAudioWithLipSync(audioBuffer);
-        } catch (voiceError) {
-          console.warn('Voice generation failed, using text-to-speech fallback:', voiceError);
-          await fallbackToSpeechSynthesis(text);
-        }
-      } catch (aiError) {
-        console.error('AI engine error:', aiError);
-        await fallbackToSpeechSynthesis(text);
-      }
-    } catch (error) {
-      console.error('Error speaking message:', error);
-      setIsPersonaSpeaking(false);
-      
-      // Reset avatar expression
-      if (avatarEngineRef.current) {
-        avatarEngineRef.current.setExpression('neutral', 0);
-      }
-    }
-  };
-
-  const playAudioWithLipSync = async (audioBuffer: ArrayBuffer): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      try {
-        const audioBlob = new Blob([audioBuffer], { type: 'audio/mpeg' });
-        const audioUrl = URL.createObjectURL(audioBlob);
-        
-        if (audioRef.current) {
-          audioRef.current.src = audioUrl;
-          audioRef.current.volume = isSpeakerOn ? 1.0 : 0.0;
-          
-          audioRef.current.onended = () => {
-            setIsPersonaSpeaking(false);
-            if (avatarEngineRef.current) {
-              avatarEngineRef.current.setExpression('neutral', 0);
-            }
-            
-            URL.revokeObjectURL(audioUrl);
-            resolve();
-          };
-          
-          audioRef.current.onerror = () => {
-            console.error('Audio playback failed, falling back to speech synthesis');
-            URL.revokeObjectURL(audioUrl);
-            fallbackToSpeechSynthesis(lastResponse).then(resolve).catch(reject);
-          };
-          
-          // Play audio
-          const playPromise = audioRef.current.play();
-          if (playPromise) {
-            playPromise.catch((error) => {
-              console.warn('Audio autoplay prevented:', error);
-              fallbackToSpeechSynthesis(lastResponse).then(resolve).catch(reject);
-            });
-          }
-        } else {
-          reject(new Error('Audio element not available'));
-        }
-      } catch (error) {
-        reject(error);
-      }
-  const fallbackToSpeechSynthesis = async (text: string): Promise<void> => {
-    return new Promise((resolve) => {
+      // Use browser's speech synthesis as fallback
       if ('speechSynthesis' in window) {
         const utterance = new SpeechSynthesisUtterance(text);
-        
-        // Try to match voice characteristics if we have them
-        const voices = speechSynthesis.getVoices();
-        if (voices.length > 0 && personaData?.metadata?.voice_profile) {
-          const characteristics = personaData.metadata.voice_profile.voiceCharacteristics;
-          
-          // Find a suitable voice
-          const suitableVoice = voices.find(voice => 
-            (characteristics.gender === 'female' && voice.name.toLowerCase().includes('female')) ||
-            (characteristics.gender === 'male' && voice.name.toLowerCase().includes('male'))
-          ) || voices[0];
-          
-          utterance.voice = suitableVoice;
-          utterance.rate = characteristics.speed || 0.9;
-          utterance.pitch = characteristics.pitch || 1.0;
-        } else {
-          utterance.rate = 0.9;
-          utterance.pitch = 1.0;
-        }
-        
+        utterance.rate = 0.9;
+        utterance.pitch = 1.0;
         utterance.volume = isSpeakerOn ? 1.0 : 0.0;
         
         utterance.onend = () => {
@@ -384,61 +139,22 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
           if (avatarEngineRef.current) {
             avatarEngineRef.current.setExpression('neutral', 0);
           }
-          
-          // Do NOT auto-restart speech recognition
-          // User must manually click microphone to speak again
-          
-          resolve();
-        };
-        
-        utterance.onerror = () => {
-          console.error('Speech synthesis also failed');
-          setIsPersonaSpeaking(false);
-          
-          // Do NOT auto-restart speech recognition
-          // User must manually click microphone to speak again
-          
-          if (avatarEngineRef.current) {
-            avatarEngineRef.current.setExpression('neutral', 0);
-          }
-          resolve();
         };
         
         speechSynthesis.speak(utterance);
       } else {
-        // Final fallback: just simulate speaking time
+        // Fallback: just simulate speaking time
         setTimeout(() => {
           setIsPersonaSpeaking(false);
           if (avatarEngineRef.current) {
             avatarEngineRef.current.setExpression('neutral', 0);
           }
-          resolve();
         }, text.length * 50);
       }
-    });
-  };
-
-  const animateAvatar = (duration: number) => {
-    if (!avatarEngineRef.current) return;
-
-    const canvas = avatarEngineRef.current.getCanvas();
-    if (!canvas) return;
-
-    let startTime = Date.now();
-    const animate = () => {
-      const elapsed = Date.now() - startTime;
-      const progress = elapsed / duration;
-
-      if (progress < 1) {
-        // Subtle breathing animation
-        const intensity = Math.sin(elapsed * 0.003) * 0.1;
-        avatarEngineRef.current.setExpression('neutral', intensity);
-        
-        requestAnimationFrame(animate);
-      }
-    };
-    
-    animate();
+    } catch (error) {
+      console.error('Error speaking message:', error);
+      setIsPersonaSpeaking(false);
+    }
   };
 
   const startCallTimer = () => {
@@ -463,13 +179,10 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
     const userMessage = currentMessage;
     setCurrentMessage('');
 
-    // Display user message briefly
     console.log('User said:', userMessage);
 
-    // Generate persona response
     setTimeout(async () => {
       try {
-        // Generate AI response using the AI engine
         const { AIPersonaEngine } = await import('../lib/ai');
         
         const personaContext = {
@@ -486,7 +199,6 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
         const response = await aiEngine.generateResponse(userMessage);
         
         await speakMessage(response);
-        setLastResponse(response);
       } catch (error) {
         console.error('Error generating response:', error);
         await speakMessage("I'm having trouble finding the right words right now. Could you try asking me again?");
@@ -495,10 +207,6 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
   };
 
   const cleanup = () => {
-    if (speechRecognition && isListening) {
-      speechRecognition.stop();
-    }
-    
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.src = '';
@@ -533,12 +241,10 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
           {isConnected ? (
             <div className="relative w-full h-full bg-black flex items-center justify-center">
               <div className="text-center text-white">
-                {/* Realistic Avatar Container */}
                 <div 
                   ref={avatarContainerRef}
                   className="relative"
                 >
-                  {/* Canvas for realistic avatar */}
                   {avatarEngineRef.current && (
                     <div className={`w-80 h-80 mx-auto mb-6 rounded-full overflow-hidden border-4 border-white/30 transition-all duration-300 ${
                       isPersonaSpeaking ? 'scale-110 shadow-2xl ring-4 ring-purple-400/50' : 'scale-100'
@@ -552,21 +258,7 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
                               canvas.height = avatarCanvas.height;
                               const ctx = canvas.getContext('2d');
                               if (ctx) {
-                                // Copy avatar canvas content
                                 ctx.drawImage(avatarCanvas, 0, 0);
-                                
-                                // Set up continuous updates
-                                const updateCanvas = () => {
-                                  ctx.clearRect(0, 0, canvas.width, canvas.height);
-                                  ctx.drawImage(avatarCanvas, 0, 0);
-                                  if (isPersonaSpeaking) {
-                                    requestAnimationFrame(updateCanvas);
-                                  }
-                                };
-                                
-                                if (isPersonaSpeaking) {
-                                  updateCanvas();
-                                }
                               }
                             }
                           }
@@ -576,36 +268,24 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
                     </div>
                   )}
                   
-                  {/* Fallback Avatar Display */}
                   {!avatarEngineRef.current && personaData?.avatar_url && (
-                  <div className={`w-64 h-64 mx-auto mb-6 rounded-full overflow-hidden border-4 border-white/30 transition-all duration-300 ${
-                    isPersonaSpeaking ? 'scale-110 shadow-2xl ring-4 ring-purple-400/50' : 'scale-100'
-                  }`}>
-                    <img 
-                      src={personaData.avatar_url} 
-                      alt={personaName}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        console.log('Avatar image failed to load, using fallback');
-                        const target = e.target as HTMLImageElement;
-                        target.style.display = 'none';
-                        const fallback = target.nextElementSibling as HTMLElement;
-                        if (fallback) fallback.style.display = 'flex';
-                      }}
-                    />
-                    <div className="w-full h-full bg-gradient-to-br from-purple-400 to-blue-400 flex items-center justify-center" style={{ display: 'none' }}>
-                      <span className="text-6xl font-bold">{personaName[0]}</span>
+                    <div className={`w-64 h-64 mx-auto mb-6 rounded-full overflow-hidden border-4 border-white/30 transition-all duration-300 ${
+                      isPersonaSpeaking ? 'scale-110 shadow-2xl ring-4 ring-purple-400/50' : 'scale-100'
+                    }`}>
+                      <img 
+                        src={personaData.avatar_url} 
+                        alt={personaName}
+                        className="w-full h-full object-cover"
+                      />
                     </div>
-                  </div>
                   )}
                   
-                  {/* Final Fallback - Initials */}
                   {!avatarEngineRef.current && !personaData?.avatar_url && (
-                  <div className={`w-64 h-64 bg-gradient-to-br from-purple-400 to-blue-400 rounded-full mx-auto mb-6 flex items-center justify-center transition-all duration-300 ${
-                    isPersonaSpeaking ? 'scale-110 shadow-2xl ring-4 ring-purple-400/50' : 'scale-100'
-                  }`}>
-                    <span className="text-6xl font-bold">{personaName[0]}</span>
-                  </div>
+                    <div className={`w-64 h-64 bg-gradient-to-br from-purple-400 to-blue-400 rounded-full mx-auto mb-6 flex items-center justify-center transition-all duration-300 ${
+                      isPersonaSpeaking ? 'scale-110 shadow-2xl ring-4 ring-purple-400/50' : 'scale-100'
+                    }`}>
+                      <span className="text-6xl font-bold">{personaName[0]}</span>
+                    </div>
                   )}
                 </div>
                 
@@ -617,13 +297,6 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
                   </span>
                 </div>
                 
-                {/* Show last response */}
-                {lastResponse && (
-                  <div className="max-w-md mx-auto bg-black/30 backdrop-blur rounded-lg p-4 mb-4">
-                    <p className="text-sm text-white/90">{lastResponse}</p>
-                  </div>
-                )}
-                
                 {avatarError && (
                   <p className="text-xs text-yellow-300/70 mt-2">
                     {avatarError}
@@ -631,7 +304,6 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
                 )}
               </div>
 
-              {/* Audio visualization */}
               {isPersonaSpeaking && (
                 <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2">
                   <div className="flex items-center space-x-1">
@@ -708,19 +380,6 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
             {isMuted ? <MicOff className="h-6 w-6 text-white" /> : <Mic className="h-6 w-6 text-white" />}
           </button>
 
-          {/* Speech Recognition Toggle */}
-          <button
-            onClick={toggleSpeechRecognition}
-            className={`p-4 rounded-full transition-all duration-300 ${
-              isListening 
-                ? 'bg-green-500 hover:bg-green-600 animate-pulse'
-                : 'bg-white/20 hover:bg-white/30 backdrop-blur'
-            }`}
-            title={isListening ? 'Stop listening' : 'Start listening'}
-          >
-            <Mic className={`h-6 w-6 text-white ${isListening ? 'animate-pulse' : ''}`} />
-          </button>
-
           <button
             onClick={() => setIsVideoOn(!isVideoOn)}
             className={`p-4 rounded-full transition-all duration-300 ${
@@ -750,87 +409,10 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
             {isSpeakerOn ? <Volume2 className="h-6 w-6 text-white" /> : <VolumeX className="h-6 w-6 text-white" />}
           </button>
         </div>
-        
-        {/* Speech Recognition Status */}
-        {(isListening || isProcessingResponse || isPersonaSpeaking) && (
-          <div className="text-center mt-4">
-            <div className="bg-white/20 backdrop-blur rounded-full px-4 py-2 inline-block">
-              <div className="flex items-center space-x-2">
-                <div className={`w-2 h-2 rounded-full ${
-                  isProcessingResponse ? 'bg-blue-400 animate-pulse' :
-                  isPersonaSpeaking ? 'bg-yellow-400' :
-                  isListening ? 'bg-green-400 animate-pulse' : 'bg-gray-400'
-                }`}></div>
-                <span className="text-white text-sm">
-                  {isProcessingResponse ? 'Thinking...' :
-                   isPersonaSpeaking ? 'Speaking...' : 
-                   isListening ? (transcript || 'Listening...') : 
-                   'Ready'}
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Audio element for persona voice */}
-      <audio 
-        ref={audioRef} 
-        style={{ display: 'none' }} 
-        preload="auto"
-        onError={(e) => {
-          const audioElement = e.target as HTMLAudioElement;
-          const error = audioElement.error;
-          
-          let errorMessage = 'Unknown audio error';
-          if (error) {
-            switch (error.code) {
-              case MediaError.MEDIA_ERR_ABORTED:
-                errorMessage = 'Audio playback was aborted';
-                break;
-              case MediaError.MEDIA_ERR_NETWORK:
-                errorMessage = 'Network error occurred while loading audio';
-                break;
-              case MediaError.MEDIA_ERR_DECODE:
-                errorMessage = 'Audio decoding error';
-                break;
-              case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-                errorMessage = 'Audio format not supported';
-                break;
-              default:
-                errorMessage = `Audio error code: ${error.code}`;
-            }
-          }
-          
-          console.error('Audio playback error:', errorMessage, e);
-          
-          // Reset speaking state
-          setIsPersonaSpeaking(false);
-          
-          // Fallback to speech synthesis if available and there's text to speak
-          if (lastResponse && 'speechSynthesis' in window) {
-            console.log('Falling back to speech synthesis');
-            const utterance = new SpeechSynthesisUtterance(lastResponse);
-            utterance.rate = 0.9;
-            utterance.pitch = 1.0;
-            utterance.volume = isSpeakerOn ? 1.0 : 0.0;
-            
-            utterance.onend = () => {
-              setIsPersonaSpeaking(false);
-            };
-            
-            utterance.onerror = () => {
-              console.error('Speech synthesis also failed');
-              setIsPersonaSpeaking(false);
-            };
-            
-            speechSynthesis.speak(utterance);
-          }
-        }}
-        onCanPlay={() => {
-          console.log('Audio ready to play');
-        }}
-      />
+      <audio ref={audioRef} style={{ display: 'none' }} preload="auto" />
     </div>
   );
 }
