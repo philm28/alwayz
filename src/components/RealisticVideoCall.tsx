@@ -315,6 +315,7 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
 
   const playAudioWithLipSync = async (audioBuffer: ArrayBuffer): Promise<void> => {
     return new Promise((resolve, reject) => {
+      try {
         const audioBlob = new Blob([audioBuffer], { type: 'audio/mpeg' });
         const audioUrl = URL.createObjectURL(audioBlob);
         
@@ -327,9 +328,6 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
             if (avatarEngineRef.current) {
               avatarEngineRef.current.setExpression('neutral', 0);
             }
-            
-            // Do NOT auto-restart speech recognition
-            // User must manually click microphone to speak again
             
             URL.revokeObjectURL(audioUrl);
             resolve();
@@ -352,9 +350,9 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
         } else {
           reject(new Error('Audio element not available'));
         }
-    });
-  };
-
+      } catch (error) {
+        reject(error);
+      }
   const fallbackToSpeechSynthesis = async (text: string): Promise<void> => {
     return new Promise((resolve) => {
       if ('speechSynthesis' in window) {
