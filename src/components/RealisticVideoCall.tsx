@@ -320,13 +320,11 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
         if (!audioBuffer || audioBuffer.byteLength === 0) {
           console.warn('Audio buffer is empty or invalid, falling back to speech synthesis');
           fallbackToSpeechSynthesis(lastResponse).then(resolve).catch(reject);
-          return;
-        }
 
         const finalAudioBlob = new Blob([audioBuffer], { type: 'audio/mp3' });
         if (finalAudioBlob.size === 0) {
           console.warn('Audio blob is empty, falling back to speech synthesis');
-        if (finalAudioBlob.size === 0) {
+          fallbackToSpeechSynthesis(lastResponse).then(resolve).catch(reject);
           return;
         }
         
