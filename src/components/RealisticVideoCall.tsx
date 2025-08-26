@@ -324,6 +324,7 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
         }
 
         const audioBlob = new Blob([audioBuffer], { type: 'audio/mpeg' });
+        const audioBlob = new Blob([audioBuffer], { type: 'audio/mp3' });
         
         // Validate the blob
         if (audioBlob.size === 0) {
