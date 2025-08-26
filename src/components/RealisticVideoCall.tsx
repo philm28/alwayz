@@ -22,6 +22,9 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
   const [personaData, setPersonaData] = useState<any>(null);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [lastResponse, setLastResponse] = useState<string>('');
+  const [isListening, setIsListening] = useState(false);
+  const [speechRecognition, setSpeechRecognition] = useState<SpeechRecognition | null>(null);
+  const [transcript, setTranscript] = useState('');
   
   const webcamRef = useRef<Webcam>(null);
   const avatarContainerRef = useRef<HTMLDivElement>(null);
@@ -33,11 +36,115 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
   useEffect(() => {
     initializeRealisticCall();
     startCallTimer();
+    initializeSpeechRecognition();
 
     return () => {
       cleanup();
     };
   }, []);
+
+  const initializeSpeechRecognition = () => {
+    // Check if speech recognition is supported
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    
+    if (!SpeechRecognition) {
+      console.warn('Speech recognition not supported in this browser');
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => {
+      console.log('Speech recognition started');
+      setIsListening(true);
+    };
+
+    recognition.onresult = (event) => {
+      let finalTranscript = '';
+      let interimTranscript = '';
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript;
+        } else {
+          interimTranscript += transcript;
+        }
+      }
+
+      setTranscript(interimTranscript);
+
+      if (finalTranscript) {
+        console.log('Final transcript:', finalTranscript);
+        handleSpokenMessage(finalTranscript);
+        setTranscript('');
+      }
+    };
+
+    recognition.onerror = (event) => {
+      console.error('Speech recognition error:', event.error);
+      setIsListening(false);
+      
+      if (event.error === 'not-allowed') {
+        alert('Microphone access denied. Please allow microphone access to speak with your persona.');
+      }
+    };
+
+    recognition.onend = () => {
+      console.log('Speech recognition ended');
+      setIsListening(false);
+    };
+
+    setSpeechRecognition(recognition);
+  };
+
+  const toggleSpeechRecognition = () => {
+    if (!speechRecognition) {
+      alert('Speech recognition not supported in this browser');
+      return;
+    }
+
+    if (isListening) {
+      speechRecognition.stop();
+      setIsListening(false);
+    } else {
+      speechRecognition.start();
+      setIsListening(true);
+    }
+  };
+
+  const handleSpokenMessage = async (spokenText: string) => {
+    if (!spokenText.trim()) return;
+
+    console.log('User spoke:', spokenText);
+
+    // Generate persona response to spoken input
+    try {
+      const { AIPersonaEngine } = await import('../lib/ai');
+      
+      const personaContext = {
+        id: personaData?.id || personaId,
+        name: personaData?.name || personaName,
+        personality_traits: personaData?.personality_traits || 'Warm and caring',
+        common_phrases: personaData?.common_phrases || [],
+        relationship: personaData?.relationship || 'Loved one',
+        memories: [],
+        conversationHistory: []
+      };
+
+      const aiEngine = new AIPersonaEngine(personaContext);
+      const response = await aiEngine.generateResponse(spokenText);
+      
+      await speakMessage(response);
+      setLastResponse(response);
+    } catch (error) {
+      console.error('Error generating response to speech:', error);
+      await speakMessage("I'm sorry, I didn't quite catch that. Could you try saying that again?");
+    }
+  };
 
   const initializeRealisticCall = async () => {
     try {
@@ -375,6 +482,10 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
   };
 
   const cleanup = () => {
+    if (speechRecognition && isListening) {
+      speechRecognition.stop();
+    }
+    
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.src = '';
@@ -584,6 +695,19 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
             {isMuted ? <MicOff className="h-6 w-6 text-white" /> : <Mic className="h-6 w-6 text-white" />}
           </button>
 
+          {/* Speech Recognition Toggle */}
+          <button
+            onClick={toggleSpeechRecognition}
+            className={`p-4 rounded-full transition-all duration-300 ${
+              isListening 
+                ? 'bg-green-500 hover:bg-green-600 animate-pulse' 
+                : 'bg-white/20 hover:bg-white/30 backdrop-blur'
+            }`}
+            title={isListening ? 'Stop listening' : 'Start voice input'}
+          >
+            <Mic className={`h-6 w-6 text-white ${isListening ? 'animate-pulse' : ''}`} />
+          </button>
+
           <button
             onClick={() => setIsVideoOn(!isVideoOn)}
             className={`p-4 rounded-full transition-all duration-300 ${
@@ -613,6 +737,20 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
             {isSpeakerOn ? <Volume2 className="h-6 w-6 text-white" /> : <VolumeX className="h-6 w-6 text-white" />}
           </button>
         </div>
+        
+        {/* Speech Recognition Status */}
+        {isListening && (
+          <div className="text-center mt-4">
+            <div className="bg-white/20 backdrop-blur rounded-full px-4 py-2 inline-block">
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                <span className="text-white text-sm">
+                  {transcript || 'Listening...'}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Audio element for persona voice */}
