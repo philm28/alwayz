@@ -323,16 +323,14 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
           return;
         }
 
-        const audioBlob = new Blob([audioBuffer], { type: 'audio/mpeg' });
-        
-        // Validate the blob
-        if (audioBlob.size === 0) {
+        const finalAudioBlob = new Blob([audioBuffer], { type: 'audio/mp3' });
+        if (finalAudioBlob.size === 0) {
           console.warn('Audio blob is empty, falling back to speech synthesis');
-          fallbackToSpeechSynthesis(lastResponse).then(resolve).catch(reject);
+        if (finalAudioBlob.size === 0) {
           return;
         }
         
-        const audioUrl = URL.createObjectURL(audioBlob);
+        const audioUrl = URL.createObjectURL(finalAudioBlob);
         
         if (audioRef.current) {
           audioRef.current.src = audioUrl;
