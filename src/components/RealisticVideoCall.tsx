@@ -46,8 +46,7 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
     };
   }, []);
 
-  const initializeSpeechRecognition = ()
-} => {
+  const initializeSpeechRecognition = () => {
     // Check if speech recognition is supported
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     
