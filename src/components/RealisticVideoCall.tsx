@@ -315,20 +315,8 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
 
   const playAudioWithLipSync = async (audioBuffer: ArrayBuffer): Promise<void> => {
     return new Promise((resolve, reject) => {
-      try {
-        // Check if audioBuffer is valid and not empty
-        if (!audioBuffer || audioBuffer.byteLength === 0) {
-          console.warn('Audio buffer is empty or invalid, falling back to speech synthesis');
-          fallbackToSpeechSynthesis(lastResponse).then(resolve).catch(reject);
-
-        const finalAudioBlob = new Blob([audioBuffer], { type: 'audio/mp3' });
-        if (finalAudioBlob.size === 0) {
-          console.warn('Audio blob is empty, falling back to speech synthesis');
-          fallbackToSpeechSynthesis(lastResponse).then(resolve).catch(reject);
-          return;
-        }
-        
-        const audioUrl = URL.createObjectURL(finalAudioBlob);
+        const audioBlob = new Blob([audioBuffer], { type: 'audio/mpeg' });
+        const audioUrl = URL.createObjectURL(audioBlob);
         
         if (audioRef.current) {
           audioRef.current.src = audioUrl;
