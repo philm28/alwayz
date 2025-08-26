@@ -116,11 +116,9 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
     if (isListening) {
       speechRecognition.stop();
       setIsListening(false);
-      setAutoListenEnabled(false);
     } else {
       speechRecognition.start();
       setIsListening(true);
-      setAutoListenEnabled(true);
     }
   };
 
@@ -346,17 +344,8 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
               avatarEngineRef.current.setExpression('neutral', 0);
             }
             
-            // Auto-restart speech recognition after audio ends, but only if not processing
-            if (autoListenEnabled && speechRecognition && !isListening && !isProcessingResponse) {
-              setTimeout(() => {
-                try {
-                  setIsProcessingResponse(false); // Reset processing state
-                  speechRecognition.start();
-                } catch (error) {
-                  console.warn('Could not restart speech recognition:', error);
-                }
-              }, 1000); // Longer delay to prevent immediate restart
-            }
+            // Do NOT auto-restart speech recognition
+            // User must manually click microphone to speak again
             
             URL.revokeObjectURL(audioUrl);
             resolve();
@@ -417,17 +406,8 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
             avatarEngineRef.current.setExpression('neutral', 0);
           }
           
-          // Auto-restart speech recognition after persona finishes speaking, but only if not processing
-          if (autoListenEnabled && speechRecognition && !isListening && !isProcessingResponse) {
-            setTimeout(() => {
-              try {
-                setIsProcessingResponse(false); // Reset processing state
-                speechRecognition.start();
-              } catch (error) {
-                console.warn('Could not restart speech recognition:', error);
-              }
-            }, 1000); // Longer delay
-          }
+          // Do NOT auto-restart speech recognition
+          // User must manually click microphone to speak again
           
           resolve();
         };
@@ -436,17 +416,8 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
           console.error('Speech synthesis also failed');
           setIsPersonaSpeaking(false);
           
-          // Auto-restart speech recognition even if speech synthesis fails, but only if not processing
-          if (autoListenEnabled && speechRecognition && !isListening && !isProcessingResponse) {
-            setTimeout(() => {
-              try {
-                setIsProcessingResponse(false); // Reset processing state
-                speechRecognition.start();
-              } catch (error) {
-                console.warn('Could not restart speech recognition:', error);
-              }
-            }, 1000); // Longer delay
-          }
+          // Do NOT auto-restart speech recognition
+          // User must manually click microphone to speak again
           
           if (avatarEngineRef.current) {
             avatarEngineRef.current.setExpression('neutral', 0);
@@ -762,11 +733,11 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
           <button
             onClick={toggleSpeechRecognition}
             className={`p-4 rounded-full transition-all duration-300 ${
-              autoListenEnabled 
-                ? 'bg-green-500 hover:bg-green-600' + (isListening ? ' animate-pulse' : '')
+              isListening 
+                ? 'bg-green-500 hover:bg-green-600 animate-pulse'
                 : 'bg-white/20 hover:bg-white/30 backdrop-blur'
             }`}
-            title={autoListenEnabled ? 'Stop voice conversation' : 'Start voice conversation'}
+            title={isListening ? 'Stop listening' : 'Start listening'}
           >
             <Mic className={`h-6 w-6 text-white ${isListening ? 'animate-pulse' : ''}`} />
           </button>
@@ -802,7 +773,7 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
         </div>
         
         {/* Speech Recognition Status */}
-        {autoListenEnabled && (
+        {(isListening || isProcessingResponse || isPersonaSpeaking) && (
           <div className="text-center mt-4">
             <div className="bg-white/20 backdrop-blur rounded-full px-4 py-2 inline-block">
               <div className="flex items-center space-x-2">
@@ -815,7 +786,7 @@ export function RealisticVideoCall({ personaId, personaName, onEndCall }: Realis
                   {isProcessingResponse ? 'Thinking...' :
                    isPersonaSpeaking ? 'Speaking...' : 
                    isListening ? (transcript || 'Listening...') : 
-                   'Voice conversation active'}
+                   'Ready'}
                 </span>
               </div>
             </div>
