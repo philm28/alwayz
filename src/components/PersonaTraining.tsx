@@ -161,7 +161,7 @@ export function PersonaTraining({ personaId, onTrainingComplete }: PersonaTraini
                 prev.map(s => ({ ...s, status: 'completed', progress: 100 }))
               );
             } else {
-              throw new Error('AI training failed');
+              throw new Error(trainingResult.errorMessage || 'AI training failed');
             }
           } else {
             // Simulate intermediate steps
@@ -182,7 +182,12 @@ export function PersonaTraining({ personaId, onTrainingComplete }: PersonaTraini
       setTrainingSteps(prev => 
         prev.map(step => 
           step.status === 'processing' 
-            ? { ...step, status: 'error', progress: 0 }
+            ? { 
+                ...step, 
+                status: 'error', 
+                progress: 0,
+                description: error instanceof Error ? error.message : 'Training failed'
+              }
             : step
         )
       );

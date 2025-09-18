@@ -244,6 +244,7 @@ Remember: You are not an AI assistant. You are ${name}, speaking from the heart 
 
 export async function trainPersonaFromContent(personaId: string, content: any[]): Promise<{
   success: boolean;
+  errorMessage?: string;
   insights: {
     personalityTraits: string[];
     commonPhrases: string[];
@@ -299,7 +300,24 @@ export async function trainPersonaFromContent(personaId: string, content: any[])
       temperature: 0.3
     });
 
-    const analysis = JSON.parse(completion.choices[0]?.message?.content || '{}');
+    const rawResponse = completion.choices[0]?.message?.content || '{}';
+    
+    let analysis;
+    try {
+      analysis = JSON.parse(rawResponse);
+    } catch (parseError) {
+      console.error('JSON parsing failed. Raw response:', rawResponse);
+      return {
+        success: false,
+        errorMessage: `OpenAI returned non-JSON response: ${rawResponse.substring(0, 100)}...`,
+        insights: {
+          personalityTraits: [],
+          commonPhrases: [],
+          emotionalPatterns: [],
+          memories: []
+        }
+      };
+    }
     
     // Save insights to database
     await supabase
@@ -325,6 +343,7 @@ export async function trainPersonaFromContent(personaId: string, content: any[])
     console.error('Training error:', error);
     return {
       success: false,
+      errorMessage: error instanceof Error ? error.message : 'Unknown training error',
       insights: {
         personalityTraits: [],
         commonPhrases: [],
