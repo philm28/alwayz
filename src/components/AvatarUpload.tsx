@@ -123,6 +123,12 @@ export function AvatarUpload({ personaId, personaName, onAvatarCreated }: Avatar
             .eq('id', personaId)
             .single();
           
+          // Check if personaData was retrieved successfully
+          if (!personaData) {
+            console.error('Persona not found:', personaId);
+            throw new Error('Persona not found in database');
+          }
+          
           // Create voice profile with enhanced characteristics
           await voiceCloning.createVoiceProfile(personaId, audioFiles);
           
@@ -158,7 +164,7 @@ export function AvatarUpload({ personaId, personaName, onAvatarCreated }: Avatar
         .update({
           avatar_url: uploadResults.photos[0] || uploadResults.videos[0] || null,
           metadata: {
-            ...personaData?.metadata,
+            ...(personaData?.metadata || {}),
             realistic_avatar: true,
             voice_cloned: audioFiles.length > 0,
             photo_count: photos.length,
