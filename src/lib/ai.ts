@@ -279,7 +279,23 @@ export async function trainPersonaFromContent(personaId: string, content: any[])
   }
 
   try {
-    const contentText = content.map(item => item.content || item.text).join('\n\n');
+    const contentText = content
+      .map(item => item.content_text || item.content || item.text || '')
+      .filter(text => text.trim().length > 0)
+      .join('\n\n');
+    
+    if (!contentText.trim()) {
+      return {
+        success: false,
+        errorMessage: 'No valid text content found to analyze. Please upload content with text.',
+        insights: {
+          personalityTraits: [],
+          commonPhrases: [],
+          emotionalPatterns: [],
+          memories: []
+        }
+      };
+    }
     
     const completion = await openai.chat.completions.create({
       model: 'gpt-4',
