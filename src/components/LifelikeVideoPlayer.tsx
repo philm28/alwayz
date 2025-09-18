@@ -94,8 +94,27 @@ export function LifelikeVideoPlayer({ personaId, personaName, onEndCall }: Lifel
         socialMedia: socialMediaContent.length
       });
 
-      if (referenceImages.length === 0) {
-        throw new Error('At least one reference image is required for face cloning');
+      // Check if we have enough content for lifelike rendering
+      const hasMinimumContent = referenceImages.length > 0 || referenceVideos.length > 0;
+      
+      if (!hasMinimumContent) {
+        console.log('Insufficient content for lifelike rendering, using fallback avatar');
+        // Use fallback initialization without face cloning
+        setInitializationStep('Creating basic avatar...');
+        setInitializationProgress(90);
+        
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        setInitializationProgress(100);
+        setIsInitialized(true);
+        setCloneQuality(0.3); // Basic quality
+        
+        setTimeout(() => {
+          setIsConnected(true);
+          generatePersonalizedGreeting();
+        }, 1000);
+        
+        return;
       }
 
       setInitializationStep('Creating 3D face clone...');
@@ -121,14 +140,19 @@ export function LifelikeVideoPlayer({ personaId, personaName, onEndCall }: Lifel
       }, 500);
 
       // Initialize the lifelike persona
-      const lifelikePersona = await personaRendererRef.current.initializePersona(
-        personaId,
-        personaName,
-        referenceImages,
-        referenceVideos,
-        voiceSamples,
-        socialMediaContent
-      );
+      try {
+        const lifelikePersona = await personaRendererRef.current.initializePersona(
+          personaId,
+          personaName,
+          referenceImages,
+          referenceVideos,
+          voiceSamples,
+          socialMediaContent
+        );
+      } catch (rendererError) {
+        console.warn('Lifelike renderer failed, using basic mode:', rendererError);
+        // Continue with basic initialization
+      }
 
       clearInterval(progressInterval);
 
@@ -515,16 +539,31 @@ export function LifelikeVideoPlayer({ personaId, personaName, onEndCall }: Lifel
             <div className="relative">
               {/* 3D Lifelike Avatar Canvas */}
               <div className="relative">
-                <canvas
-                  ref={avatarCanvasRef}
-                  className={`w-96 h-96 rounded-2xl border-4 border-white/30 transition-all duration-300 ${
+                {personaRendererRef.current ? (
+                  <canvas
+                    ref={avatarCanvasRef}
+                    className={`w-96 h-96 rounded-2xl border-4 border-white/30 transition-all duration-300 ${
+                      isPersonaSpeaking ? 'scale-105 shadow-2xl ring-4 ring-purple-400/50' : 'scale-100'
+                    }`}
+                    style={{
+                      filter: `brightness(${isSpeakerOn ? 1.2 : 0.8}) contrast(1.3) saturate(1.2)`,
+                      background: 'linear-gradient(135deg, #1a1a2e, #16213e)'
+                    }}
+                  />
+                ) : (
+                  <div className={`w-96 h-96 rounded-2xl border-4 border-white/30 transition-all duration-300 flex items-center justify-center ${
                     isPersonaSpeaking ? 'scale-105 shadow-2xl ring-4 ring-purple-400/50' : 'scale-100'
                   }`}
                   style={{
-                    filter: `brightness(${isSpeakerOn ? 1.2 : 0.8}) contrast(1.3) saturate(1.2)`,
                     background: 'linear-gradient(135deg, #1a1a2e, #16213e)'
-                  }}
-                />
+                  }}>
+                    <div className={`w-64 h-64 bg-gradient-to-br from-purple-400 to-blue-400 rounded-full flex items-center justify-center transition-all duration-300 ${
+                      isPersonaSpeaking ? 'scale-110 shadow-2xl' : 'scale-100'
+                    }`}>
+                      <span className="text-6xl font-bold text-white">{personaName[0]}</span>
+                    </div>
+                  </div>
+                )}
                 
                 {/* Realistic lighting overlay */}
                 <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-white/10 via-transparent to-black/30 pointer-events-none"></div>
