@@ -22,6 +22,7 @@ import { OpenAIStatus } from './components/OpenAIStatus';
 import { OAuthCallback } from './components/OAuthCallback';
 import { AvatarUpload } from './components/AvatarUpload';
 import { RealisticVideoCall } from './components/RealisticVideoCall';
+import { LifelikeVideoPlayer } from './components/LifelikeVideoPlayer';
 import { initializeMonitoring, setUserContext } from './lib/monitoring';
 import { initializeAnalytics, trackPageView } from './lib/analytics';
 import { emailService } from './lib/email';
@@ -765,7 +766,7 @@ function App() {
         ) : <LandingPage />;
       case 'video-call':
         return user && selectedPersona ? (
-          <RealisticVideoCall
+          <LifelikeVideoPlayer
             personaId={selectedPersona.id}
             personaName={selectedPersona.name}
             onEndCall={() => setCurrentView('dashboard')}
