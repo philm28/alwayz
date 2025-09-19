@@ -139,16 +139,34 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
       uploadedFile.status = 'processing';
       uploadedFile.progress = 50;
 
+      // Extract text content from text files
+      let extractedText = '';
+      if (file.type === 'text/plain' || file.type === 'text/markdown' || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
+        try {
+          extractedText = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target?.result as string || '');
+            reader.onerror = () => reject(new Error('Failed to read file content'));
+            reader.readAsText(file);
+          });
+          console.log('Extracted text content:', extractedText.substring(0, 100) + '...');
+        } catch (error) {
+          console.warn('Failed to extract text content:', error);
+        }
+      }
+
       const dbPayload = {
         persona_id: personaId,
         content_type: getContentType(file.type),
         file_url: publicUrl,
         file_name: file.name,
         file_size: file.size,
+        content_text: extractedText,
         metadata: {
           original_name: file.name,
           mime_type: file.type,
-          upload_date: new Date().toISOString()
+          upload_date: new Date().toISOString(),
+          has_text_content: extractedText.length > 0
         },
         processing_status: 'processing'
       };
