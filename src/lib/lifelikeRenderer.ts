@@ -94,6 +94,48 @@ export class LifelikePersonaRenderer {
     }
   }
 
+  private async loadImageWithFallback(photoUrl: string): Promise<HTMLImageElement> {
+    const img = new Image();
+    
+    // Set CORS to anonymous to handle cross-origin requests
+    img.crossOrigin = 'anonymous';
+    
+    return new Promise<HTMLImageElement>((resolve, reject) => {
+      img.onload = () => resolve(img);
+      img.onerror = async () => {
+        // Try loading with credentials as fallback
+        const imgWithCredentials = new Image();
+        imgWithCredentials.crossOrigin = 'use-credentials';
+        
+        imgWithCredentials.onload = () => resolve(imgWithCredentials);
+        imgWithCredentials.onerror = () => {
+          console.error(`Failed to load image: ${photoUrl}`);
+          // Create a placeholder image instead of failing
+          const canvas = document.createElement('canvas');
+          canvas.width = 400;
+          canvas.height = 400;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#f0f0f0';
+            ctx.fillRect(0, 0, 400, 400);
+            ctx.fillStyle = '#666';
+            ctx.font = '16px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Image not available', 200, 200);
+          }
+          
+          const placeholderImg = new Image();
+          placeholderImg.src = canvas.toDataURL();
+          resolve(placeholderImg);
+        };
+        
+        imgWithCredentials.src = photoUrl;
+      };
+      
+      img.src = photoUrl;
+    });
+  }
+
   startRendering(): void {
     if (this.isRendering || !this.persona) return;
     
