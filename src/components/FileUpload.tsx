@@ -139,9 +139,11 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
       uploadedFile.status = 'processing';
       uploadedFile.progress = 50;
 
-      // Extract text content from text files
+      // Generate text content for all files
       let extractedText = '';
+      
       if (file.type === 'text/plain' || file.type === 'text/markdown' || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
+        // Extract actual text content from text files
         try {
           extractedText = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
@@ -152,8 +154,28 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
           console.log('Extracted text content:', extractedText.substring(0, 100) + '...');
         } catch (error) {
           console.warn('Failed to extract text content:', error);
+          extractedText = `Text file: ${file.name} (${formatFileSize(file.size)}) - Content could not be extracted`;
+        }
+      } else {
+        // Generate descriptive text for non-text files
+        const fileType = file.type.split('/')[0]; // Get main type (image, video, audio, etc.)
+        const fileExtension = file.name.split('.').pop()?.toUpperCase() || 'FILE';
+        
+        if (fileType === 'image') {
+          extractedText = `Image file: ${file.name} (${formatFileSize(file.size)}, ${fileExtension} format) - Visual content that may contain important memories, scenes, people, or moments relevant to this persona's experiences and personality.`;
+        } else if (fileType === 'video') {
+          extractedText = `Video file: ${file.name} (${formatFileSize(file.size)}, ${fileExtension} format) - Video content that may contain spoken words, visual scenes, interactions, or behavioral patterns relevant to this persona's communication style and experiences.`;
+        } else if (fileType === 'audio') {
+          extractedText = `Audio file: ${file.name} (${formatFileSize(file.size)}, ${fileExtension} format) - Audio content that may contain speech patterns, voice characteristics, conversations, or sounds relevant to this persona's communication style and personality.`;
+        } else if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+          extractedText = `PDF document: ${file.name} (${formatFileSize(file.size)}) - Document content that may contain written information, knowledge, or text relevant to this persona's expertise and communication style.`;
+        } else if (file.type.includes('document') || file.name.match(/\.(doc|docx)$/i)) {
+          extractedText = `Document file: ${file.name} (${formatFileSize(file.size)}, ${fileExtension} format) - Document content that may contain written information, knowledge, or text relevant to this persona's expertise and communication style.`;
+        } else {
+          extractedText = `File: ${file.name} (${formatFileSize(file.size)}, ${fileExtension} format) - Content file that may contain information relevant to this persona's knowledge base and experiences.`;
         }
       }
+      
 
       const dbPayload = {
         persona_id: personaId,
