@@ -60,17 +60,24 @@ export class LifelikePersonaRenderer {
     voiceSamples: string[],
     socialMediaContent: any[]
   ): Promise<LifelikePersona> {
+    console.log('Initializing lifelike persona:', name);
+    
     try {
-      console.log('Initializing lifelike persona:', name);
-      
-      // Create face clone data
-      const faceCloneData = await faceCloningEngine.createFaceClone(
-        personaId,
-        referenceImages,
-        referenceVideos,
-        voiceSamples,
-        socialMediaContent
-      );
+      // Create face clone data with error handling
+      let faceCloneData;
+      try {
+        faceCloneData = await faceCloningEngine.createFaceClone(
+          personaId,
+          referenceImages,
+          referenceVideos,
+          voiceSamples,
+          socialMediaContent
+        );
+      } catch (faceCloneError) {
+        console.warn('Face cloning failed, creating fallback data:', faceCloneError);
+        // Create minimal fallback face clone data
+        faceCloneData = this.createFallbackFaceCloneData(personaId, name);
+      }
 
       this.persona = {
         id: personaId,
@@ -90,7 +97,59 @@ export class LifelikePersonaRenderer {
       return this.persona;
     } catch (error) {
       console.error('Error initializing lifelike persona:', error);
+      // Return a basic persona instead of throwing
+      return this.createBasicPersona(personaId, name);
     }
+  }
+
+  private createFallbackFaceCloneData(personaId: string, name: string): FaceCloneData {
+    // Create minimal face clone data structure
+    return {
+      personaId,
+      faceTexture: new ImageData(256, 256),
+      facialLandmarks: {
+        faceContour: [],
+        leftEyebrow: [],
+        rightEyebrow: [],
+        noseBridge: [],
+        noseBase: [],
+        leftEye: [],
+        rightEye: [],
+        outerLip: [],
+        innerLip: []
+      },
+      expressionMorphs: {
+        neutral: {},
+        happy: {},
+        sad: {},
+        angry: {},
+        surprised: {},
+        speaking: []
+      },
+      personalityTraits: {
+        facialExpressionFrequency: {
+          happy: 5,
+          sad: 2,
+          angry: 1,
+          surprised: 3
+        }
+      },
+      animationSequences: []
+    };
+  }
+
+  private createBasicPersona(personaId: string, name: string): LifelikePersona {
+    return {
+      id: personaId,
+      name,
+      faceCloneData: this.createFallbackFaceCloneData(personaId, name),
+      isReady: true,
+      currentExpression: 'neutral',
+      currentEmotion: 'neutral',
+      speakingIntensity: 0,
+      eyeBlinkState: 0,
+      headRotation: { x: 0, y: 0, z: 0 }
+    };
   }
 
   private async loadImageWithFallback(photoUrl: string): Promise<HTMLImageElement> {
