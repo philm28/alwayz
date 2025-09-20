@@ -103,7 +103,8 @@ export class FaceCloningEngine {
       // Step 2: Extract face texture (35%)
       this.analysisProgress = 25;
       const faceTexture = await this.extractFaceTexture(referenceImages);
-      
+          // Log the error but don't capture it as an exception to avoid breaking the flow
+          console.error(`Image loading failed for ${imageUrl}:`, error);
       // Step 3: Create expression morphs from videos (50%)
       this.analysisProgress = 35;
       const expressionMorphs = await this.createExpressionMorphs(referenceVideos, facialLandmarks);

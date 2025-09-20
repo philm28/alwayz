@@ -588,9 +588,28 @@ export class LifelikePersonaRenderer {
   }
 
   private blinkEye(eyeLandmarks: number[][], blinkState: number): number[][] {
+    // Check if eyeLandmarks is valid and has sufficient data
+    if (!eyeLandmarks || !Array.isArray(eyeLandmarks) || eyeLandmarks.length < 6) {
+      console.warn('Invalid eyeLandmarks data for blinking, returning original');
+      return eyeLandmarks || [];
+    }
+    
     return eyeLandmarks.map((point, index) => {
+      // Ensure point is valid before processing
+      if (!point || !Array.isArray(point) || point.length < 2) {
+        return point || [0, 0];
+      }
+      
       if (index === 1 || index === 5) { // Top and bottom of eye
-        const centerY = (eyeLandmarks[1][1] + eyeLandmarks[5][1]) / 2;
+        // Safely access eye landmark points
+        const topPoint = eyeLandmarks[1];
+        const bottomPoint = eyeLandmarks[5];
+        
+        if (!topPoint || !bottomPoint || topPoint.length < 2 || bottomPoint.length < 2) {
+          return point;
+        }
+        
+        const centerY = (topPoint[1] + bottomPoint[1]) / 2;
         const targetY = centerY;
         const currentY = point[1];
         const blinkY = currentY + (targetY - currentY) * blinkState;
