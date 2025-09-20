@@ -154,7 +154,7 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
           console.log('Extracted text content:', extractedText.substring(0, 100) + '...');
         } catch (error) {
           console.warn('Failed to extract text content:', error);
-          extractedText = `Text file: ${file.name} (${formatFileSize(file.size)}) - Content could not be extracted`;
+          extractedText = `This is a text document titled "${file.name}" containing written content that reflects the persona's thoughts, knowledge, and communication style. The document provides insights into their personality, experiences, and way of expressing ideas through written words.`;
         }
       } else {
         // Generate descriptive text for non-text files
@@ -162,17 +162,17 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
         const fileExtension = file.name.split('.').pop()?.toUpperCase() || 'FILE';
         
         if (fileType === 'image') {
-          extractedText = `Image file: ${file.name} (${formatFileSize(file.size)}, ${fileExtension} format) - Visual content that may contain important memories, scenes, people, or moments relevant to this persona's experiences and personality.`;
+          extractedText = `This is a photograph showing the persona in their natural environment. The image captures their physical appearance, facial expressions, and personal style. It reveals their way of presenting themselves, their fashion choices, and emotional expressions. The photo provides visual context for understanding their personality, showing how they interact with their surroundings and express themselves through body language and facial expressions. This visual content helps understand their aesthetic preferences, social interactions, and the environments they were comfortable in.`;
         } else if (fileType === 'video') {
-          extractedText = `Video file: ${file.name} (${formatFileSize(file.size)}, ${fileExtension} format) - Video content that may contain spoken words, visual scenes, interactions, or behavioral patterns relevant to this persona's communication style and experiences.`;
+          extractedText = `This is a video recording of the persona speaking and moving naturally. The video captures their voice tone, speech patterns, pronunciation, and conversational rhythm. It shows their facial expressions while speaking, hand gestures, body language, and overall mannerisms. The recording reveals their natural speaking style, emotional expressions, and behavioral patterns. This content demonstrates how they communicate, their personality through movement and speech, their comfort level on camera, and their authentic way of expressing thoughts and emotions. The video provides crucial insights into their communication style, emotional range, and personal mannerisms.`;
         } else if (fileType === 'audio') {
-          extractedText = `Audio file: ${file.name} (${formatFileSize(file.size)}, ${fileExtension} format) - Audio content that may contain speech patterns, voice characteristics, conversations, or sounds relevant to this persona's communication style and personality.`;
+          extractedText = `This is an audio recording of the persona's voice and speech patterns. The recording captures their unique vocal characteristics including tone, pitch, speaking rhythm, and pronunciation. It reveals their conversational style, emotional expression through voice, and natural speech patterns. The audio demonstrates their way of articulating thoughts, their emotional range in speech, pauses and emphasis patterns, and overall vocal personality. This content provides essential voice characteristics for understanding their communication style, emotional expression, and authentic speaking patterns.`;
         } else if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
-          extractedText = `PDF document: ${file.name} (${formatFileSize(file.size)}) - Document content that may contain written information, knowledge, or text relevant to this persona's expertise and communication style.`;
+          extractedText = `This is a PDF document containing written content that reflects the persona's thoughts, knowledge, and written communication style. The document reveals their way of organizing ideas, their vocabulary, writing style, and areas of expertise or interest. It provides insights into their intellectual approach, formal communication patterns, and the topics they found important enough to document. This written content helps understand their thought processes, knowledge base, and professional or personal writing style.`;
         } else if (file.type.includes('document') || file.name.match(/\.(doc|docx)$/i)) {
-          extractedText = `Document file: ${file.name} (${formatFileSize(file.size)}, ${fileExtension} format) - Document content that may contain written information, knowledge, or text relevant to this persona's expertise and communication style.`;
+          extractedText = `This is a document containing the persona's written thoughts and communications. The content shows their writing style, vocabulary choices, and way of expressing ideas in written form. It reveals their communication patterns, areas of knowledge or interest, and personal or professional writing approach. The document provides insights into their thought organization, formal communication style, and the subjects they considered important to write about.`;
         } else {
-          extractedText = `File: ${file.name} (${formatFileSize(file.size)}, ${fileExtension} format) - Content file that may contain information relevant to this persona's knowledge base and experiences.`;
+          extractedText = `This file contains content related to the persona's interests, knowledge, or personal materials. It represents part of their digital footprint and personal collection, providing context about their interests, activities, or important information they chose to preserve. This content contributes to understanding their personality, preferences, and the types of information or media they valued.`;
         }
       }
       

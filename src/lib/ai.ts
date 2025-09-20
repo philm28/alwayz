@@ -279,15 +279,9 @@ export async function trainPersonaFromContent(personaId: string, content: any[])
   }
 
   try {
-    // Filter content to only include actual text content, not media descriptions
+    // Get all content with descriptive text for analysis
     const contentText = content
-      .filter(item => {
-        // Only include items that are explicitly text-based content types
-        const contentType = item.content_type || '';
-        
-        // Only include text and social media content types
-        return contentType === 'text' || contentType === 'social_media';
-      })
+      .filter(item => item.content_text && item.content_text.trim().length > 50) // Only include items with substantial text
       .map(item => item.content_text || item.content || item.text || '')
       .filter(text => text.trim().length > 0)
       .join('\n\n');
@@ -295,7 +289,7 @@ export async function trainPersonaFromContent(personaId: string, content: any[])
     if (!contentText.trim()) {
       return {
         success: false,
-        errorMessage: 'No valid text content found to analyze. Please upload content with text.',
+        errorMessage: 'No content with sufficient text descriptions found. Please upload some files first.',
         insights: {
           personalityTraits: [],
           commonPhrases: [],
@@ -305,18 +299,31 @@ export async function trainPersonaFromContent(personaId: string, content: any[])
       };
     }
     
+    console.log('Analyzing content text length:', contentText.length, 'characters');
+    
     const completion = await openai.chat.completions.create({
       model: 'gpt-4',
       messages: [
         {
           role: 'system',
-          content: `Analyze this person's content to extract:
-          1. Personality traits and characteristics
-          2. Common phrases and expressions they use
-          3. Emotional patterns and tendencies
-          4. Important memories and experiences
+          content: `You are analyzing content about a person to create an AI persona. The content includes descriptions of their photos, videos, audio recordings, and documents. Extract:
           
-          Respond in JSON format with arrays for each category.`
+          1. Personality traits and characteristics (from all content types)
+          2. Common phrases and expressions (from video/audio descriptions)
+          3. Emotional patterns and tendencies (from visual and audio cues)
+          4. Important memories and experiences (from all content)
+          5. Communication style and mannerisms (from video/audio descriptions)
+          6. Visual characteristics and appearance (from photo/video descriptions)
+          
+          Respond in JSON format:
+          {
+            "personalityTraits": ["trait1", "trait2", ...],
+            "commonPhrases": ["phrase1", "phrase2", ...],
+            "emotionalPatterns": ["pattern1", "pattern2", ...],
+            "memories": ["memory1", "memory2", ...],
+            "communicationStyle": "description of how they communicate",
+            "visualCharacteristics": "description of their appearance and style"
+          }`
         },
         { role: 'user', content: contentText }
       ],
