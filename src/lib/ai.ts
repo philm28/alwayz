@@ -279,7 +279,26 @@ export async function trainPersonaFromContent(personaId: string, content: any[])
   }
 
   try {
+    // Filter content to only include actual text content, not media descriptions
     const contentText = content
+      .filter(item => {
+        // Only include items that have actual text content (not generated descriptions)
+        const mimeType = item.file_type || item.mime_type || '';
+        const fileName = item.file_name || item.name || '';
+        
+        // Include text files and documents
+        return mimeType.startsWith('text/') || 
+               mimeType === 'application/pdf' ||
+               fileName.endsWith('.txt') ||
+               fileName.endsWith('.md') ||
+               fileName.endsWith('.doc') ||
+               fileName.endsWith('.docx') ||
+               // Only include if it has actual extracted content (not generated descriptions)
+               (item.content_text && !item.content_text.includes('This appears to be') && 
+                !item.content_text.includes('This file contains') &&
+                !item.content_text.includes('This video likely') &&
+                !item.content_text.includes('This audio file'));
+      })
       .map(item => item.content_text || item.content || item.text || '')
       .filter(text => text.trim().length > 0)
       .join('\n\n');
