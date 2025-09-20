@@ -90,7 +90,6 @@ export class LifelikePersonaRenderer {
       return this.persona;
     } catch (error) {
       console.error('Error initializing lifelike persona:', error);
-      throw error;
     }
   }
 
@@ -111,7 +110,7 @@ export class LifelikePersonaRenderer {
         imgWithCredentials.onerror = () => {
           console.error(`Failed to load image: ${photoUrl}`);
           // Create a placeholder image instead of failing
-          const canvas = document.createElement('canvas');
+          const placeholderCanvas = document.createElement('canvas');
           canvas.width = 400;
           canvas.height = 400;
           const ctx = canvas.getContext('2d');
@@ -134,6 +133,25 @@ export class LifelikePersonaRenderer {
       
       img.src = photoUrl;
     });
+  }
+
+  private createPlaceholderImage(): HTMLImageElement {
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 400;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = '#f0f0f0';
+      ctx.fillRect(0, 0, 400, 400);
+      ctx.fillStyle = '#666';
+      ctx.font = '16px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('Image not available', 200, 200);
+    }
+    
+    const placeholderImg = new Image();
+    placeholderImg.src = canvas.toDataURL();
+    return placeholderImg;
   }
 
   startRendering(): void {
