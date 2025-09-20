@@ -691,7 +691,8 @@ function App() {
               <PersonaTraining 
                 personaId={selectedPersona?.id || ''} 
                 onTrainingComplete={() => {
-                  setCurrentView('dashboard');
+                  // Force refresh personas data and return to dashboard
+                  window.location.reload();
                 }}
               />
             </div>

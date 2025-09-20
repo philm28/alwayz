@@ -56,6 +56,7 @@ export function PersonaTraining({ personaId, onTrainingComplete }: PersonaTraini
 
   const [overallProgress, setOverallProgress] = useState(0);
   const [isTraining, setIsTraining] = useState(false);
+  const [trainingCompleted, setTrainingCompleted] = useState(false);
 
   useEffect(() => {
     // Calculate overall progress
@@ -67,8 +68,12 @@ export function PersonaTraining({ personaId, onTrainingComplete }: PersonaTraini
     const allCompleted = trainingSteps.every(step => step.status === 'completed');
     if (allCompleted && isTraining) {
       setIsTraining(false);
+      setTrainingCompleted(true);
       updatePersonaStatus('active', 100);
-      onTrainingComplete?.();
+      // Delay callback to ensure database update completes
+      setTimeout(() => {
+        onTrainingComplete?.();
+      }, 1000);
     }
   }, [trainingSteps, isTraining, onTrainingComplete]);
 

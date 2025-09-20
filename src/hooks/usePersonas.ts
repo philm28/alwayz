@@ -84,6 +84,10 @@ export function usePersonas() {
       setPersonas(prev => 
         prev.map(persona => persona.id === id ? data : persona)
       )
+      
+      // Force a refetch to ensure we have the latest data
+      await fetchPersonas()
+      
       return data
     } catch (error) {
       console.error('Error updating persona:', error)
