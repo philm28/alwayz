@@ -23,6 +23,7 @@ import { OAuthCallback } from './components/OAuthCallback';
 import { AvatarUpload } from './components/AvatarUpload';
 import { RealisticVideoCall } from './components/RealisticVideoCall';
 import { LifelikeVideoPlayer } from './components/LifelikeVideoPlayer';
+import { VisualPersonaCreator } from './components/VisualPersonaCreator';
 import { initializeMonitoring, setUserContext } from './lib/monitoring';
 import { initializeAnalytics, trackPageView } from './lib/analytics';
 import { emailService } from './lib/email';
@@ -799,6 +800,18 @@ function App() {
                   setCurrentView('persona-setup');
                 }}
               />
+              
+              {/* Visual Persona Creator */}
+              <div className="mt-8">
+                <VisualPersonaCreator
+                  personaId={selectedPersona.id}
+                  personaName={selectedPersona.name}
+                  onPersonaGenerated={(result) => {
+                    console.log('Visual persona generated:', result);
+                    toast.success('Visual persona created successfully!');
+                  }}
+                />
+              </div>
             </div>
           </div>
         ) : <LandingPage />;
