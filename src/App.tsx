@@ -340,16 +340,22 @@ function App() {
   );
 
   const Dashboard = () => (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-purple-50">
       <SEOHead title="Dashboard" />
       <Navigation />
       
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Your Personas</h1>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        {/* Header Section */}
+        <div className="text-center mb-12">
+          <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
+            Your AI Personas
+          </h1>
+          <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
+            Create meaningful connections with the memories of your loved ones
+          </p>
           <button 
             onClick={() => setCurrentView('create-persona')}
-            className="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6 py-3 rounded-full font-semibold hover:shadow-lg transition-all duration-300 flex items-center"
+            className="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-8 py-4 rounded-full font-semibold hover:shadow-xl hover:scale-105 transition-all duration-300 flex items-center mx-auto"
           >
             <Plus className="h-5 w-5 mr-2" />
             Create New Persona
@@ -357,55 +363,80 @@ function App() {
         </div>
 
         {personasLoading ? (
-          <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
-            <p className="text-gray-600 mt-4">Loading your personas...</p>
+          <div className="text-center py-20">
+            <div className="relative">
+              <div className="animate-spin rounded-full h-16 w-16 border-4 border-purple-200 border-t-purple-600 mx-auto"></div>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Heart className="h-6 w-6 text-purple-600 animate-pulse" />
+              </div>
+            </div>
+            <p className="text-gray-600 mt-6 text-lg">Loading your personas...</p>
           </div>
         ) : (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
             {personas.map((persona) => (
-              <div key={persona.id} className="bg-white rounded-2xl shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden">
-                <div className="p-6">
-                  <div className="flex items-center mb-4">
-                    <div className="w-16 h-16 bg-gradient-to-br from-purple-400 to-blue-400 rounded-full flex items-center justify-center mr-4">
+              <div key={persona.id} className="bg-white rounded-3xl shadow-lg hover:shadow-2xl transition-all duration-500 overflow-hidden border border-gray-100 hover:border-purple-200 group">
+                <div className="p-8">
+                  {/* Avatar Section */}
+                  <div className="text-center mb-6">
+                    <div className="relative inline-block">
+                      <div className="w-24 h-24 bg-gradient-to-br from-purple-400 via-purple-500 to-blue-500 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg group-hover:shadow-xl transition-all duration-300">
                       {persona.avatar_url ? (
                         <img 
                           src={persona.avatar_url} 
                           alt={persona.name}
-                          className="w-16 h-16 rounded-full object-cover"
+                            className="w-24 h-24 rounded-full object-cover border-4 border-white shadow-lg"
                         />
                       ) : (
-                        <User className="h-8 w-8 text-white" />
+                          <User className="h-12 w-12 text-white" />
                       )}
                     </div>
-                    <div>
-                      <h3 className="text-xl font-semibold text-gray-900">{persona.name}</h3>
-                      <p className="text-gray-500">{persona.relationship || 'Loved one'}</p>
+                      {/* Status Indicator */}
+                      <div className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full border-3 border-white shadow-lg ${
+                        persona.status === 'active' ? 'bg-green-400' : 
+                        persona.status === 'training' ? 'bg-yellow-400 animate-pulse' : 'bg-gray-400'
+                      }`}></div>
                     </div>
+                    <h3 className="text-2xl font-bold text-gray-900 mb-1">{persona.name}</h3>
+                    <p className="text-gray-500 font-medium">{persona.relationship || 'Loved one'}</p>
                   </div>
                   
-                  <div className="flex justify-between items-center mb-4">
-                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                  {/* Status Badge */}
+                  <div className="flex justify-center mb-6">
+                    <span className={`px-4 py-2 rounded-full text-sm font-semibold shadow-sm ${
                       persona.status === 'active' 
-                        ? 'bg-green-100 text-green-800' 
+                        ? 'bg-green-100 text-green-800 border border-green-200' 
                         : persona.status === 'training'
-                        ? 'bg-yellow-100 text-yellow-800'
-                        : 'bg-red-100 text-red-800'
+                        ? 'bg-yellow-100 text-yellow-800 border border-yellow-200'
+                        : 'bg-red-100 text-red-800 border border-red-200'
                     }`}>
-                      {persona.status === 'active' ? 'Ready to chat' : 
-                       persona.status === 'training' ? `Training... ${persona.training_progress}%` : 'Needs training'}
+                      {persona.status === 'active' ? '✨ Ready to chat' : 
+                       persona.status === 'training' ? `🔄 Training... ${persona.training_progress}%` : '⚠️ Needs training'}
                     </span>
                   </div>
 
-                  <div className="flex space-x-2">
+                  {/* Progress Bar for Training */}
+                  {persona.status === 'training' && (
+                    <div className="mb-6">
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div
+                          className="bg-gradient-to-r from-purple-500 to-blue-500 h-2 rounded-full transition-all duration-500"
+                          style={{ width: `${persona.training_progress}%` }}
+                        ></div>
+                    </div>
+                  </div>
+                  )}
+
+                  {/* Action Buttons */}
+                  <div className="space-y-3">
                     {persona.status === 'active' ? (
-                      <>
+                      <div className="grid grid-cols-2 gap-3">
                         <button 
                           onClick={() => {
                             setSelectedPersona(persona);
                             setCurrentView('chat');
                           }}
-                          className="flex-1 bg-gradient-to-r from-purple-600 to-blue-600 text-white py-2 px-4 rounded-lg font-medium hover:shadow-lg transition-all duration-300 flex items-center justify-center"
+                          className="bg-gradient-to-r from-purple-600 to-blue-600 text-white py-3 px-4 rounded-xl font-semibold hover:shadow-lg hover:scale-105 transition-all duration-300 flex items-center justify-center"
                         >
                           <MessageCircle className="h-4 w-4 mr-2" />
                           Chat
@@ -415,19 +446,19 @@ function App() {
                             setSelectedPersona(persona);
                             setCurrentView('video-call');
                           }}
-                          className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-2 px-4 rounded-lg font-medium hover:shadow-lg transition-all duration-300 flex items-center justify-center"
+                          className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-3 px-4 rounded-xl font-semibold hover:shadow-lg hover:scale-105 transition-all duration-300 flex items-center justify-center"
                         >
                           <Video className="h-4 w-4 mr-2" />
                           Video
                         </button>
-                      </>
+                      </div>
                     ) : (
                       <button 
                         onClick={() => {
                           setSelectedPersona(persona);
                           setCurrentView('persona-setup');
                         }}
-                        className="w-full bg-gray-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-gray-700 transition-colors flex items-center justify-center"
+                        className="w-full bg-gradient-to-r from-gray-600 to-gray-700 text-white py-3 px-4 rounded-xl font-semibold hover:shadow-lg hover:scale-105 transition-all duration-300 flex items-center justify-center"
                       >
                         <Settings className="h-4 w-4 mr-2" />
                         Setup Training
@@ -439,16 +470,23 @@ function App() {
             ))}
             
             {personas.length === 0 && (
-              <div className="col-span-full text-center py-12">
-                <User className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">No personas yet</h3>
-                <p className="text-gray-500 mb-6">Create your first AI persona to get started</p>
+              <div className="col-span-full text-center py-20">
+                <div className="bg-white rounded-3xl shadow-lg p-12 max-w-md mx-auto border border-gray-100">
+                  <div className="w-20 h-20 bg-gradient-to-br from-purple-100 to-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <User className="h-10 w-10 text-purple-600" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-900 mb-3">No personas yet</h3>
+                  <p className="text-gray-600 mb-8 leading-relaxed">
+                    Create your first AI persona to begin preserving precious memories and having meaningful conversations
+                  </p>
                 <button 
                   onClick={() => setCurrentView('create-persona')}
-                  className="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6 py-3 rounded-full font-semibold"
+                  className="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-8 py-4 rounded-full font-semibold hover:shadow-xl hover:scale-105 transition-all duration-300 flex items-center mx-auto"
                 >
+                    <Plus className="h-5 w-5 mr-2" />
                   Create First Persona
                 </button>
+                </div>
               </div>
             )}
           </div>
