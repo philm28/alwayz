@@ -145,7 +145,6 @@ export class FaceCloningEngine {
     } catch (error) {
       console.error('Face cloning error:', error);
       this.isAnalyzing = false;
-      captureException(error as Error, { personaId });
       throw error;
     }
   }
