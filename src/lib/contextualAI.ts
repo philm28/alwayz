@@ -31,6 +31,8 @@ export class ContextualAIEngine {
   private relevantMemories: PersonaMemory[] = [];
   private lastResponseTime = 0;
   private isProcessing = false;
+  private lastUserMessage = '';
+  private responseDebounceTimeout: NodeJS.Timeout | null = null;
 
   constructor(personaId: string, personaData: any) {
     this.personaId = personaId;
@@ -67,6 +69,12 @@ export class ContextualAIEngine {
     conversationContext: ConversationContext,
     isInterruption: boolean = false
   ): Promise<ContextualResponse> {
+    // Prevent duplicate responses for the same message
+    if (this.lastUserMessage === userSpeech.trim() || this.isProcessing) {
+      throw new Error('Already processing this message');
+    }
+    
+    this.lastUserMessage = userSpeech.trim();
     const startTime = Date.now();
     this.isProcessing = true;
 
@@ -144,6 +152,10 @@ export class ContextualAIEngine {
       };
     } finally {
       this.isProcessing = false;
+      // Clear the last message after a delay to allow new messages
+      setTimeout(() => {
+        this.lastUserMessage = '';
+      }, 2000);
     }
   }
 

@@ -29,6 +29,7 @@ export function RealTimeConversation({ personaId, personaName, onEndConversation
   const [currentTranscript, setCurrentTranscript] = useState('');
   const [isPersonaResponding, setIsPersonaResponding] = useState(false);
   const [responseProgress, setResponseProgress] = useState(0);
+  const [isProcessingResponse, setIsProcessingResponse] = useState(false);
   const [conversationContext, setConversationContext] = useState<ConversationContext>({
     recentMessages: [],
     currentTopic: 'general',
@@ -42,6 +43,8 @@ export function RealTimeConversation({ personaId, personaName, onEndConversation
   const contextualAI = useRef<ContextualAIEngine | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const conversationId = useRef<string | null>(null);
+  const lastProcessedTranscript = useRef<string>('');
+  const responseTimeout = useRef<NodeJS.Timeout | null>(null);
   const { user } = useAuth();
 
   useEffect(() => {
@@ -110,7 +113,316 @@ export function RealTimeConversation({ personaId, personaName, onEndConversation
     speechRecognition.current.onResult((result: SpeechResult) => {
       setCurrentTranscript(result.transcript);
       
-      if (result.isFinal && result.transcript.trim().length > 0) {
+      if (result.isFinal && result.transcript.trim().length > 0 && !isProcessingResponse) {
+        // Prevent duplicate processing of the same transcript
+        if (lastProcessedTranscript.current === result.transcript.trim()) {
+          return;
+        }
+        
+        // Clear any existing response timeout
+        if (responseTimeout.current) {
+          clearTimeout(responseTimeout.current);
+          responseTimeout.current = null;
+        }
+        
+        // Debounce the response to prevent multiple triggers
+        responseTimeout.current = setTimeout(() => {
+          lastProcessedTranscript.current = result.transcript.trim();
+          handleUserSpeech(result.transcript, result.confidence);
+        }, 500);
+      }
+    });
+
+    speechRecognition.current.onError((error: string) => {
+      console.error('Speech recognition error:', error);
+      
+      // Don't show error toast for common issues
+      if (!error.includes('no-speech') && !error.includes('aborted')) {
+        toast.error(error);
+      }
+      
+      setIsListening(false);
+      setIsProcessingResponse(false);
+    });
+
+    speechRecognition.current.onStart(() => {
+      setIsListening(true);
+      // Stop any current persona audio when user starts speaking
+      if (audioRef.current && !audioRef.current.paused) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+      if ('speechSynthesis' in window) {
+        speechSynthesis.cancel();
+      }
+    });
+
+    speechRecognition.current.onEnd(() => {
+      setIsListening(false);
+      // Auto-restart listening if we're not processing a response
+      if (!isProcessingResponse) {
+        setTimeout(() => {
+          if (speechRecognition.current && !isProcessingResponse) {
+            speechRecognition.current.startListening().catch(console.error);
+          }
+        }, 1000);
+      }
+    });
+
+    speechRecognition.current.onSilenceDetected = () => {
+      console.log('Silence detected, ready for persona response');
+      // Clear current transcript on silence
+      setCurrentTranscript('');
+    };
+  };
+
+  const handleUserSpeech = async (transcript: string, confidence: number) => {
+    if (isProcessingResponse || transcript.trim().length === 0) {
+      return;
+    }
+
+    setIsProcessingResponse(true);
+    
+    // Stop listening while processing response
+    if (speechRecognition.current) {
+      speechRecognition.current.stopListening();
+    }
+
+    // Add user message to conversation
+    const userMessage: ConversationMessage = {
+      id: Date.now().toString(),
+      sender: 'user',
+      content: transcript,
+      timestamp: new Date(),
+      emotion: conversationContext.emotionalTone
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+
+    // Save user message to database
+    if (conversationId.current) {
+      try {
+        await supabase.from('messages').insert({
+          conversation_id: conversationId.current,
+          sender_type: 'user',
+          content: transcript,
+          message_type: 'text',
+          metadata: { confidence, emotion: conversationContext.emotionalTone }
+        });
+      } catch (error) {
+        console.error('Error saving user message:', error);
+      }
+    }
+
+    // Generate AI response
+    await generatePersonaResponse(transcript);
+  };
+
+  const generatePersonaResponse = async (userSpeech: string) => {
+    if (!contextualAI.current || isPersonaResponding) {
+      setIsProcessingResponse(false);
+      return;
+    }
+
+    setIsPersonaResponding(true);
+    setResponseProgress(0);
+
+    try {
+      // Simulate response preparation progress
+      const progressInterval = setInterval(() => {
+        setResponseProgress(prev => Math.min(prev + 15, 90));
+      }, 150);
+
+      // Get updated conversation context
+      const context = speechRecognition.current?.getConversationContext() || conversationContext;
+      setConversationContext(context);
+
+      // Generate contextual response
+      const response = await contextualAI.current.generateContextualResponse(
+        userSpeech,
+        context,
+        false
+      );
+
+      clearInterval(progressInterval);
+      setResponseProgress(100);
+
+      // Add persona response to conversation
+      const personaMessage: ConversationMessage = {
+        id: (Date.now() + 1).toString(),
+        sender: 'persona',
+        content: response.text,
+        timestamp: new Date(),
+        emotion: response.emotion
+      };
+
+      setMessages(prev => [...prev, personaMessage]);
+
+      // Save persona message to database
+      if (conversationId.current) {
+        try {
+          await supabase.from('messages').insert({
+            conversation_id: conversationId.current,
+            sender_type: 'persona',
+            content: response.text,
+            message_type: 'text',
+            metadata: { 
+              emotion: response.emotion, 
+              confidence: response.confidence,
+              responseTime: response.responseTime,
+              conversationFlow: response.conversationFlow
+            }
+          });
+        } catch (error) {
+          console.error('Error saving persona message:', error);
+        }
+      }
+
+      // Play audio response
+      if (response.audioBuffer && isSpeakerOn) {
+        await playAudioResponse(response.audioBuffer);
+      } else if (isSpeakerOn) {
+        // Fallback to browser TTS
+        await speakText(response.text);
+      }
+
+    } catch (error) {
+      console.error('Error generating persona response:', error);
+      toast.error('Failed to generate response');
+    } finally {
+      setIsPersonaResponding(false);
+      setResponseProgress(0);
+      setIsProcessingResponse(false);
+      
+      // Resume listening after response is complete
+      setTimeout(() => {
+        if (speechRecognition.current && !isProcessingResponse) {
+          speechRecognition.current.startListening().catch(console.error);
+        }
+      }, 1000);
+    }
+  };
+
+  const playAudioResponse = async (audioBuffer: ArrayBuffer): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      try {
+        // Stop any existing audio
+        if (audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current.currentTime = 0;
+        }
+        
+        const audioBlob = new Blob([audioBuffer], { type: 'audio/mpeg' });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        
+        if (audioRef.current) {
+          audioRef.current.src = audioUrl;
+          audioRef.current.volume = isSpeakerOn ? 1.0 : 0.0;
+          
+          audioRef.current.onended = () => {
+            URL.revokeObjectURL(audioUrl);
+            resolve();
+          };
+          
+          audioRef.current.onerror = () => {
+            URL.revokeObjectURL(audioUrl);
+            reject(new Error('Audio playback failed'));
+          };
+          
+          audioRef.current.play().catch(reject);
+        } else {
+          reject(new Error('Audio element not available'));
+        }
+      } catch (error) {
+        console.error('Error playing audio response:', error);
+        reject(error);
+      }
+    });
+  };
+
+  const speakText = async (text: string): Promise<void> => {
+    return new Promise((resolve) => {
+      if ('speechSynthesis' in window) {
+        // Cancel any existing speech
+        speechSynthesis.cancel();
+        
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 0.9;
+        utterance.pitch = 1.0;
+        utterance.volume = isSpeakerOn ? 1.0 : 0.0;
+        
+        utterance.onend = () => resolve();
+        utterance.onerror = () => resolve(); // Still resolve on error
+        
+        speechSynthesis.speak(utterance);
+      } else {
+        resolve();
+      }
+    });
+  };
+
+  const toggleListening = async () => {
+    if (!speechRecognition.current) return;
+
+    if (isListening) {
+      speechRecognition.current.stopListening();
+      setIsListening(false);
+    } else {
+      // Request microphone permission first
+      if (permissionGranted === null) {
+        try {
+          await navigator.mediaDevices.getUserMedia({ audio: true });
+          setPermissionGranted(true);
+        } catch (error) {
+          setPermissionGranted(false);
+          toast.error('Microphone permission denied. Please allow microphone access for voice conversation.');
+          return;
+        }
+      }
+
+      try {
+        await speechRecognition.current.startListening();
+      } catch (error) {
+        console.error('Failed to start speech recognition:', error);
+        toast.error('Failed to start speech recognition');
+      }
+    }
+  };
+
+  const cleanup = () => {
+    // Clear any pending timeouts
+    if (responseTimeout.current) {
+      clearTimeout(responseTimeout.current);
+      responseTimeout.current = null;
+    }
+    
+    // Stop speech recognition
+    if (speechRecognition.current) {
+      speechRecognition.current.destroy();
+    }
+    
+    // Stop any audio
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+    }
+    
+    // Cancel speech synthesis
+    if ('speechSynthesis' in window) {
+      speechSynthesis.cancel();
+    }
+
+    // Update conversation end time
+    if (conversationId.current) {
+      supabase
+        .from('conversations')
+        .update({
+          ended_at: new Date().toISOString(),
+          duration_seconds: Math.floor((Date.now() - Date.parse(messages[0]?.timestamp.toISOString() || '')) / 1000)
+        })
+        .eq('id', conversationId.current);
+    }
+  };
         handleUserSpeech(result.transcript, result.confidence);
         setCurrentTranscript('');
       }

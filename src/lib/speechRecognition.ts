@@ -79,11 +79,6 @@ export class RealTimeSpeechRecognition {
       console.log('Speech recognition ended');
       this.isListening = false;
       this.onEndCallback?.();
-      
-      // Auto-restart if we're supposed to be listening continuously
-      if (this.config.continuous && this.isListening) {
-        setTimeout(() => this.startListening(), 100);
-      }
     };
 
     this.recognition.onerror = (event) => {
@@ -93,7 +88,8 @@ export class RealTimeSpeechRecognition {
       let errorMessage = 'Speech recognition error';
       switch (event.error) {
         case 'no-speech':
-          errorMessage = 'No speech detected. Please try speaking again.';
+          // Don't treat no-speech as an error, just continue
+          return;
           break;
         case 'audio-capture':
           errorMessage = 'Microphone access denied or not available.';
@@ -234,17 +230,19 @@ export class RealTimeSpeechRecognition {
         return;
       }
 
-      if (this.isListening) {
-        resolve();
-        return;
-      }
 
       try {
+        // Stop any existing recognition first
+        if (this.isListening) {
+          this.recognition.stop();
+        }
+        
         this.recognition.start();
         resolve();
       } catch (error) {
         console.error('Error starting speech recognition:', error);
-        reject(error);
+        // Don't reject for common errors, just resolve
+        resolve();
       }
     });
   }
