@@ -24,6 +24,7 @@ import { AvatarUpload } from './components/AvatarUpload';
 import { RealisticVideoCall } from './components/RealisticVideoCall';
 import { LifelikeVideoPlayer } from './components/LifelikeVideoPlayer';
 import { VisualPersonaCreator } from './components/VisualPersonaCreator';
+import { RealTimeConversation } from './components/RealTimeConversation';
 import { initializeMonitoring, setUserContext } from './lib/monitoring';
 import { initializeAnalytics, trackPageView } from './lib/analytics';
 import { emailService } from './lib/email';
@@ -802,6 +803,14 @@ function App() {
             personaName={selectedPersona.name}
             conversationType="chat"
             onEndCall={() => setCurrentView('dashboard')}
+          />
+        ) : <LandingPage />;
+      case 'real-time-chat':
+        return user && selectedPersona ? (
+          <RealTimeConversation
+            personaId={selectedPersona.id}
+            personaName={selectedPersona.name}
+            onEndConversation={() => setCurrentView('dashboard')}
           />
         ) : <LandingPage />;
       case 'video-call':
