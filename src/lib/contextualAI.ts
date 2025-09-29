@@ -69,25 +69,34 @@ export class ContextualAIEngine {
     conversationContext: ConversationContext,
     isInterruption: boolean = false
   ): Promise<ContextualResponse> {
-    // Prevent duplicate responses for the same message
-    if (this.lastUserMessage === userSpeech.trim() || this.isProcessing) {
-      throw new Error('Already processing this message');
+    const trimmedSpeech = userSpeech.trim();
+    
+    // Prevent duplicate responses for the same message or if already processing
+    if (this.lastUserMessage === trimmedSpeech || this.isProcessing) {
+      console.log('Skipping duplicate or concurrent request:', { 
+        lastMessage: this.lastUserMessage, 
+        currentMessage: trimmedSpeech, 
+        isProcessing: this.isProcessing 
+      });
+      throw new Error('Already processing this message or duplicate request');
     }
     
-    this.lastUserMessage = userSpeech.trim();
+    this.lastUserMessage = trimmedSpeech;
     const startTime = Date.now();
     this.isProcessing = true;
+    
+    console.log('Starting contextual response generation for:', trimmedSpeech);
 
     try {
       // Find relevant memories for context
-      const relevantMemories = this.findRelevantMemories(userSpeech, conversationContext.currentTopic);
+      const relevantMemories = this.findRelevantMemories(trimmedSpeech, conversationContext.currentTopic);
       
       // Determine conversation flow
-      const conversationFlow = this.determineConversationFlow(userSpeech, conversationContext);
+      const conversationFlow = this.determineConversationFlow(trimmedSpeech, conversationContext);
       
       // Generate contextual response
       const response = await this.generateResponse(
-        userSpeech,
+        trimmedSpeech,
         conversationContext,
         relevantMemories,
         conversationFlow,
@@ -96,7 +105,7 @@ export class ContextualAIEngine {
 
       // Analyze emotion and confidence
       const emotion = this.analyzeResponseEmotion(response, conversationContext.emotionalTone);
-      const confidence = this.calculateResponseConfidence(userSpeech, response);
+      const confidence = this.calculateResponseConfidence(trimmedSpeech, response);
 
       // Generate voice if OpenAI is available
       let audioBuffer: ArrayBuffer | undefined;
@@ -116,7 +125,7 @@ export class ContextualAIEngine {
 
       // Update conversation history
       this.conversationHistory.push(
-        { role: 'user', content: userSpeech, timestamp: new Date(), emotion: conversationContext.emotionalTone },
+        { role: 'user', content: trimmedSpeech, timestamp: new Date(), emotion: conversationContext.emotionalTone },
         { role: 'assistant', content: response, timestamp: new Date(), emotion }
       );
 
@@ -127,6 +136,13 @@ export class ContextualAIEngine {
 
       const responseTime = Date.now() - startTime;
       this.lastResponseTime = responseTime;
+      
+      console.log('Contextual response generated successfully:', {
+        responseTime,
+        emotion,
+        confidence,
+        hasAudio: !!audioBuffer
+      });
 
       return {
         text: response,
@@ -139,7 +155,7 @@ export class ContextualAIEngine {
       };
     } catch (error) {
       console.error('Error generating contextual response:', error);
-      captureException(error as Error, { personaId: this.personaId, userSpeech });
+      console.error('Context:', { personaId: this.personaId, userSpeech: trimmedSpeech });
       
       // Fallback response
       return {
@@ -154,8 +170,11 @@ export class ContextualAIEngine {
       this.isProcessing = false;
       // Clear the last message after a delay to allow new messages
       setTimeout(() => {
-        this.lastUserMessage = '';
-      }, 2000);
+        if (this.lastUserMessage === trimmedSpeech) {
+          this.lastUserMessage = '';
+          console.log('Cleared last processed message, ready for new input');
+        }
+      }, 5000);
     }
   }
 

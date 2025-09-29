@@ -88,9 +88,8 @@ export class RealTimeSpeechRecognition {
       let errorMessage = 'Speech recognition error';
       switch (event.error) {
         case 'no-speech':
-          // Don't treat no-speech as an error, just continue
+          console.log('No speech detected, continuing...');
           return;
-          break;
         case 'audio-capture':
           errorMessage = 'Microphone access denied or not available.';
           break;
@@ -100,6 +99,9 @@ export class RealTimeSpeechRecognition {
         case 'network':
           errorMessage = 'Network error during speech recognition.';
           break;
+        case 'aborted':
+          console.log('Speech recognition aborted (normal during restart)');
+          return;
         default:
           errorMessage = `Speech recognition error: ${event.error}`;
       }
@@ -230,27 +232,28 @@ export class RealTimeSpeechRecognition {
         return;
       }
 
+      // Don't start if already listening
+      if (this.isListening) {
+        console.log('Speech recognition already active');
+        resolve();
+        return;
+      }
 
       try {
-        // Stop any existing recognition first
-        if (this.isListening) {
-          this.recognition.stop();
-        }
-        
+        console.log('Starting speech recognition...');
         this.recognition.start();
         resolve();
       } catch (error) {
         console.error('Error starting speech recognition:', error);
-        // Don't reject for common errors, just resolve
-        resolve();
+        reject(error);
       }
     });
   }
 
   stopListening(): void {
+    console.log('Stopping speech recognition...');
     if (this.recognition && this.isListening) {
       this.recognition.stop();
-      this.isListening = false;
     }
 
     if (this.silenceTimer) {

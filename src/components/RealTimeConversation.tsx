@@ -177,10 +177,16 @@ export function RealTimeConversation({ personaId, personaName, onEndConversation
   };
 
   const handleUserSpeech = async (transcript: string, confidence: number) => {
-    if (isProcessingResponse || transcript.trim().length === 0) {
+    if (isProcessingResponse || transcript.trim().length === 0 || transcript === lastProcessedTranscript.current) {
       return;
     }
 
+    // Immediately stop all audio to prevent overlaps
+    stopAllAudio();
+    
+    // Set the last processed transcript to prevent duplicates
+    lastProcessedTranscript.current = transcript;
+    
     setIsProcessingResponse(true);
     
     // Stop listening while processing response
@@ -216,6 +222,11 @@ export function RealTimeConversation({ personaId, personaName, onEndConversation
 
     // Generate AI response
     await generatePersonaResponse(transcript);
+    
+    // Clear the processed transcript after a delay
+    setTimeout(() => {
+      lastProcessedTranscript.current = '';
+    }, 3000);
   };
 
   const generatePersonaResponse = async (userSpeech: string) => {
@@ -224,6 +235,9 @@ export function RealTimeConversation({ personaId, personaName, onEndConversation
       return;
     }
 
+    // Ensure no other audio is playing
+    stopAllAudio();
+    
     setIsPersonaResponding(true);
     setResponseProgress(0);
 
@@ -295,44 +309,75 @@ export function RealTimeConversation({ personaId, personaName, onEndConversation
       setIsProcessingResponse(false);
       
       // Resume listening after response is complete
-      setTimeout(() => {
-        if (speechRecognition.current && !isProcessingResponse) {
-          speechRecognition.current.startListening().catch(console.error);
-        }
-      }, 1000);
+      // Resume listening immediately after response ends
+      resumeListening();
     }
+  };
+
+  const stopAllAudio = () => {
+    // Stop HTML5 audio
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current.src = '';
+    }
+    
+    // Stop speech synthesis
+    if ('speechSynthesis' in window) {
+      speechSynthesis.cancel();
+    }
+  };
+  
+  const resumeListening = () => {
+    // Wait a moment for audio to fully stop, then resume listening
+    setTimeout(() => {
+      if (speechRecognition.current && !isProcessingResponse && !isPersonaResponding) {
+        console.log('Resuming speech recognition...');
+        speechRecognition.current.startListening().catch((error) => {
+          console.error('Failed to resume listening:', error);
+          // Try again after a longer delay
+          setTimeout(() => {
+            if (speechRecognition.current && !isProcessingResponse && !isPersonaResponding) {
+              speechRecognition.current.startListening().catch(console.error);
+            }
+          }, 2000);
+        });
+      }
+    }, 1500);
   };
 
   const playAudioResponse = async (audioBuffer: ArrayBuffer): Promise<void> => {
     return new Promise((resolve, reject) => {
       try {
-        // Stop any existing audio
-        if (audioRef.current) {
-          audioRef.current.pause();
-          audioRef.current.currentTime = 0;
+        // Ensure audio element is ready
+        if (!audioRef.current) {
+          reject(new Error('Audio element not available'));
+          return;
         }
         
         const audioBlob = new Blob([audioBuffer], { type: 'audio/mpeg' });
         const audioUrl = URL.createObjectURL(audioBlob);
         
-        if (audioRef.current) {
-          audioRef.current.src = audioUrl;
-          audioRef.current.volume = isSpeakerOn ? 1.0 : 0.0;
-          
-          audioRef.current.onended = () => {
-            URL.revokeObjectURL(audioUrl);
-            resolve();
-          };
-          
-          audioRef.current.onerror = () => {
-            URL.revokeObjectURL(audioUrl);
-            reject(new Error('Audio playback failed'));
-          };
-          
-          audioRef.current.play().catch(reject);
-        } else {
-          reject(new Error('Audio element not available'));
-        }
+        audioRef.current.src = audioUrl;
+        audioRef.current.volume = isSpeakerOn ? 1.0 : 0.0;
+        
+        audioRef.current.onended = () => {
+          URL.revokeObjectURL(audioUrl);
+          console.log('Audio playback ended');
+          resolve();
+        };
+        
+        audioRef.current.onerror = (error) => {
+          console.error('Audio playback error:', error);
+          URL.revokeObjectURL(audioUrl);
+          reject(new Error('Audio playback failed'));
+        };
+        
+        audioRef.current.play().catch((playError) => {
+          console.error('Audio play failed:', playError);
+          URL.revokeObjectURL(audioUrl);
+          reject(playError);
+        });
       } catch (error) {
         console.error('Error playing audio response:', error);
         reject(error);
@@ -343,16 +388,19 @@ export function RealTimeConversation({ personaId, personaName, onEndConversation
   const speakText = async (text: string): Promise<void> => {
     return new Promise((resolve) => {
       if ('speechSynthesis' in window) {
-        // Cancel any existing speech
-        speechSynthesis.cancel();
-        
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.rate = 0.9;
         utterance.pitch = 1.0;
         utterance.volume = isSpeakerOn ? 1.0 : 0.0;
         
-        utterance.onend = () => resolve();
-        utterance.onerror = () => resolve(); // Still resolve on error
+        utterance.onend = () => {
+          console.log('Speech synthesis ended');
+          resolve();
+        };
+        utterance.onerror = (error) => {
+          console.error('Speech synthesis error:', error);
+          resolve(); // Still resolve on error
+        };
         
         speechSynthesis.speak(utterance);
       } else {
@@ -381,6 +429,7 @@ export function RealTimeConversation({ personaId, personaName, onEndConversation
       }
 
       try {
+        console.log('Starting speech recognition...');
         await speechRecognition.current.startListening();
       } catch (error) {
         console.error('Failed to start speech recognition:', error);
@@ -390,28 +439,22 @@ export function RealTimeConversation({ personaId, personaName, onEndConversation
   };
 
   const cleanup = () => {
+    console.log('Cleaning up conversation...');
+    
     // Clear any pending timeouts
     if (responseTimeout.current) {
       clearTimeout(responseTimeout.current);
       responseTimeout.current = null;
     }
     
+    // Stop all audio
+    stopAllAudio();
+    
     // Stop speech recognition
     if (speechRecognition.current) {
       speechRecognition.current.destroy();
     }
     
-    // Stop any audio
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = '';
-    }
-    
-    // Cancel speech synthesis
-    if ('speechSynthesis' in window) {
-      speechSynthesis.cancel();
-    }
-
     // Update conversation end time
     if (conversationId.current) {
       supabase
