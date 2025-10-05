@@ -1,6 +1,7 @@
 import { AvatarEngine } from './avatarEngine';
 import { voiceCloning } from './voiceCloning';
 import { supabase } from './supabase';
+import { didService } from './didAvatar';
 
 export interface RealisticPersona {
   id: string;
@@ -9,6 +10,8 @@ export interface RealisticPersona {
   isVideoReady: boolean;
   isVoiceReady: boolean;
   currentEmotion: string;
+  didAvatarImageUrl?: string;
+  elevenlabsVoiceId?: string;
 }
 
 export class RealisticAvatarManager {
@@ -111,8 +114,19 @@ export class RealisticAvatarManager {
         avatarEngine,
         isVideoReady: finalPhotoUrls.length > 0 || !!finalVideoUrl,
         isVoiceReady,
-        currentEmotion: 'neutral'
+        currentEmotion: 'neutral',
+        didAvatarImageUrl: finalPhotoUrls[0],
+        elevenlabsVoiceId: personaData?.voice_model_id
       };
+
+      if (finalPhotoUrls[0]) {
+        try {
+          await didService.createAvatarFromPhoto(personaId, finalPhotoUrls[0]);
+          console.log('D-ID avatar initialized successfully');
+        } catch (didError) {
+          console.warn('D-ID avatar initialization failed:', didError);
+        }
+      }
 
       this.personas.set(personaId, persona);
       return persona;
@@ -130,6 +144,7 @@ export class RealisticAvatarManager {
     text: string;
     audioBlob?: Blob;
     videoBlob?: Blob;
+    videoUrl?: string;
   }> {
     const persona = this.personas.get(personaId);
     if (!persona) {
@@ -137,10 +152,8 @@ export class RealisticAvatarManager {
     }
 
     try {
-      // Generate text response using existing AI engine
       const { AIPersonaEngine } = await import('./ai');
-      
-      // Get persona data from database
+
       const { data: personaData } = await supabase
         .from('personas')
         .select('*')
@@ -164,45 +177,101 @@ export class RealisticAvatarManager {
       const aiEngine = new AIPersonaEngine(personaContext);
       const textResponse = await aiEngine.generateResponse(message);
 
-      // Generate voice response
       let audioBlob: Blob | undefined;
+      let audioUrl: string | undefined;
+
       if (persona.isVoiceReady) {
         try {
           const audioBuffer = await voiceCloning.synthesizeVoice(
-            personaId, 
-            textResponse, 
+            personaId,
+            textResponse,
             emotion
           );
           audioBlob = new Blob([audioBuffer], { type: 'audio/mpeg' });
+
+          const audioPath = `conversations/${personaId}/audio-${Date.now()}.mp3`;
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('persona-content')
+            .upload(audioPath, audioBlob);
+
+          if (!uploadError) {
+            const { data: { publicUrl } } = supabase.storage
+              .from('persona-content')
+              .getPublicUrl(audioPath);
+            audioUrl = publicUrl;
+          }
         } catch (voiceError) {
           console.warn('Voice synthesis failed, continuing without audio:', voiceError);
         }
       }
 
-      // Generate video response with lip sync
-      let videoBlob: Blob | undefined;
-      if (persona.isVideoReady && audioBlob) {
+      let videoUrl: string | undefined;
+
+      if (persona.didAvatarImageUrl && audioUrl) {
         try {
-          const audioBuffer = await audioBlob.arrayBuffer();
-          videoBlob = await persona.avatarEngine.generateTalkingAvatar(
-            audioBuffer, 
-            textResponse
+          console.log('Generating D-ID talking video...');
+          videoUrl = await didService.generateTalkingVideo(
+            personaId,
+            persona.didAvatarImageUrl,
+            audioUrl
           );
-        } catch (videoError) {
-          console.warn('Video generation failed, continuing without video:', videoError);
+          console.log('D-ID video generated successfully:', videoUrl);
+        } catch (didError) {
+          console.warn('D-ID video generation failed:', didError);
         }
       }
 
-      // Update persona emotion
+      let videoBlob: Blob | undefined;
+      if (!videoUrl && persona.isVideoReady && audioBlob) {
+        try {
+          const audioBuffer = await audioBlob.arrayBuffer();
+          videoBlob = await persona.avatarEngine.generateTalkingAvatar(
+            audioBuffer,
+            textResponse
+          );
+        } catch (videoError) {
+          console.warn('Fallback video generation failed:', videoError);
+        }
+      }
+
       persona.currentEmotion = emotion || 'neutral';
 
       return {
         text: textResponse,
         audioBlob,
-        videoBlob
+        videoBlob,
+        videoUrl
       };
     } catch (error) {
       console.error('Error generating realistic response:', error);
+      throw error;
+    }
+  }
+
+  async generateTalkingVideoFromText(
+    personaId: string,
+    text: string,
+    voiceId?: string
+  ): Promise<string> {
+    const persona = this.personas.get(personaId);
+    if (!persona) {
+      throw new Error('Persona not found');
+    }
+
+    if (!persona.didAvatarImageUrl) {
+      throw new Error('No avatar image available for this persona');
+    }
+
+    try {
+      const videoUrl = await didService.generateTalkingVideoWithText(
+        personaId,
+        persona.didAvatarImageUrl,
+        text,
+        voiceId
+      );
+      return videoUrl;
+    } catch (error) {
+      console.error('Error generating talking video from text:', error);
       throw error;
     }
   }
