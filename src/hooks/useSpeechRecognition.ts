@@ -29,6 +29,7 @@ export function useSpeechRecognition(
   const [isListening, setIsListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
+  const finalTranscriptRef = useRef('');
 
   const isSupported = typeof window !== 'undefined' &&
     ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
@@ -47,29 +48,27 @@ export function useSpeechRecognition(
     recognition.onstart = () => {
       setIsListening(true);
       setError(null);
+      finalTranscriptRef.current = '';
     };
 
     recognition.onresult = (event: any) => {
-      let finalTranscript = '';
-      let interimTranscript = '';
+      let finalText = '';
+      let interimText = '';
 
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
+      for (let i = 0; i < event.results.length; i++) {
+        const transcriptPiece = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          finalTranscript += transcript + ' ';
+          finalText += transcriptPiece + ' ';
         } else {
-          interimTranscript += transcript;
+          interimText += transcriptPiece;
         }
       }
 
-      if (finalTranscript) {
-        setTranscript(prev => prev + finalTranscript);
-      } else if (interimTranscript) {
-        setTranscript(prev => {
-          const words = prev.split(' ');
-          words[words.length - 1] = interimTranscript;
-          return words.join(' ');
-        });
+      if (finalText) {
+        finalTranscriptRef.current = finalTranscriptRef.current + finalText;
+        setTranscript(finalTranscriptRef.current);
+      } else {
+        setTranscript(finalTranscriptRef.current + interimText);
       }
     };
 
@@ -115,6 +114,7 @@ export function useSpeechRecognition(
 
   const resetTranscript = useCallback(() => {
     setTranscript('');
+    finalTranscriptRef.current = '';
   }, []);
 
   return {
