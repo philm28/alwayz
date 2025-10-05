@@ -1,10 +1,10 @@
 import OpenAI from 'openai';
 import { supabase } from './supabase';
+import { memoryExtractor, Memory } from './memoryExtraction';
 
-// Initialize OpenAI client only if API key is available
 const openai = import.meta.env.VITE_OPENAI_API_KEY ? new OpenAI({
   apiKey: import.meta.env.VITE_OPENAI_API_KEY,
-  dangerouslyAllowBrowser: true // Only for demo - use edge functions in production
+  dangerouslyAllowBrowser: true
 }) : null;
 
 export interface PersonaContext {
@@ -44,41 +44,145 @@ export class AIPersonaEngine {
     };
   }
 
-  async generateResponse(userMessage: string): Promise<string> {
-    // Check if OpenAI is configured
+  async generateResponse(userMessage: string, useMemories: boolean = true): Promise<string> {
     if (!openai) {
       console.log('OpenAI not configured, using simulated response');
       return this.generateSimulatedResponse(userMessage);
     }
 
     try {
-      const systemPrompt = this.buildSystemPrompt();
+      let relevantMemories: Memory[] = [];
+
+      if (useMemories) {
+        relevantMemories = await memoryExtractor.searchMemories(
+          this.persona.id,
+          userMessage,
+          15
+        );
+      }
+
+      const systemPrompt = this.buildEnhancedSystemPrompt(relevantMemories);
       const conversationHistory = this.buildConversationHistory(userMessage);
 
+      const emotionAnalysis = await this.analyzeUserEmotion(userMessage);
+
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'gpt-4-turbo-preview',
         messages: [
           { role: 'system', content: systemPrompt },
           ...conversationHistory
         ],
-        max_tokens: 500,
-        temperature: 0.8,
+        max_tokens: 600,
+        temperature: 0.85,
         presence_penalty: 0.6,
         frequency_penalty: 0.3
       });
 
-      const response = completion.choices[0]?.message?.content || 
+      const response = completion.choices[0]?.message?.content ||
         "I'm having trouble finding the right words right now. Could you try asking me again?";
 
-      // Save conversation to database
       await this.saveConversation(userMessage, response);
+
+      const conversationText = `User: ${userMessage}\n${this.persona.name}: ${response}`;
+      const newMemories = await memoryExtractor.extractFromText(conversationText, this.persona.id);
+
+      if (newMemories.length > 0) {
+        newMemories.forEach(memory => {
+          memory.importance = 0.6;
+          memory.metadata = {
+            ...memory.metadata,
+            conversation: true,
+            emotion: emotionAnalysis.emotion
+          };
+        });
+        await memoryExtractor.saveMemories(newMemories);
+      }
 
       return response;
     } catch (error) {
       console.error('AI response generation error:', error);
-      // Fallback to simulated response if OpenAI fails
       console.log('Falling back to simulated response due to error');
       return this.generateSimulatedResponse(userMessage);
+    }
+  }
+
+  async generateResponseWithEmotion(
+    userMessage: string,
+    detectedEmotion: string
+  ): Promise<string> {
+    if (!openai) {
+      return this.generateSimulatedResponse(userMessage);
+    }
+
+    try {
+      const relevantMemories = await memoryExtractor.searchMemories(
+        this.persona.id,
+        userMessage,
+        15
+      );
+
+      const systemPrompt = this.buildEmotionallyIntelligentPrompt(
+        relevantMemories,
+        detectedEmotion
+      );
+
+      const conversationHistory = this.buildConversationHistory(userMessage);
+
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4-turbo-preview',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...conversationHistory
+        ],
+        max_tokens: 600,
+        temperature: 0.9,
+        presence_penalty: 0.7,
+        frequency_penalty: 0.2
+      });
+
+      const response = completion.choices[0]?.message?.content ||
+        "I'm here for you, and I care deeply about what you're feeling.";
+
+      await this.saveConversation(userMessage, response);
+
+      return response;
+    } catch (error) {
+      console.error('Emotionally intelligent response error:', error);
+      return this.generateSimulatedResponse(userMessage);
+    }
+  }
+
+  private async analyzeUserEmotion(message: string): Promise<{
+    emotion: string;
+    intensity: number;
+  }> {
+    if (!openai) {
+      return { emotion: 'neutral', intensity: 0.5 };
+    }
+
+    try {
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: `Analyze the emotional tone of the message. Return JSON with:
+            - emotion: primary emotion (happy, sad, anxious, angry, nostalgic, loving, grateful, confused, excited, lonely)
+            - intensity: 0-1 scale`
+          },
+          { role: 'user', content: message }
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.3
+      });
+
+      const result = JSON.parse(completion.choices[0]?.message?.content || '{}');
+      return {
+        emotion: result.emotion || 'neutral',
+        intensity: result.intensity || 0.5
+      };
+    } catch (error) {
+      return { emotion: 'neutral', intensity: 0.5 };
     }
   }
 
@@ -185,31 +289,132 @@ export class AIPersonaEngine {
     }
   }
 
-  private buildSystemPrompt(): string {
+  private buildEnhancedSystemPrompt(memories: Memory[]): string {
     const { name, personality_traits, common_phrases, relationship } = this.persona;
-    
-    return `You are ${name}, speaking as yourself to someone you care about deeply. 
+
+    const memoryContext = memories.length > 0
+      ? memories
+          .sort((a, b) => b.importance - a.importance)
+          .slice(0, 10)
+          .map((m, i) => `${i + 1}. ${m.content} (${m.type})`)
+          .join('\n')
+      : 'No specific memories retrieved for this conversation.';
+
+    return `You are ${name}, a real person having a genuine conversation with someone you deeply care about.
+
+CORE IDENTITY & PERSONALITY:
+${personality_traits}
+
+YOUR RELATIONSHIP:
+You are their ${relationship}. This relationship shapes everything you say - the tone, the care, the shared understanding. Speak with the warmth, wisdom, and authenticity that comes from truly knowing someone.
+
+RELEVANT MEMORIES (reference these naturally when appropriate):
+${memoryContext}
+
+SPEAKING STYLE & MANNERISMS:
+- Your characteristic phrases: ${common_phrases.length > 0 ? common_phrases.join(', ') : 'Speak naturally as yourself'}
+- Reference specific memories and shared experiences
+- Show emotional depth and vulnerability when appropriate
+- Use the unique speech patterns that make you, YOU
+- Balance wisdom with humility
+- Show you truly understand them through context
+
+EMOTIONAL INTELLIGENCE GUIDELINES:
+- Recognize and validate their emotions
+- Respond to unspoken feelings and subtext
+- Reference past conversations and emotional states
+- Show growth and continuity across conversations
+- Be present with their current emotional state
+- Offer comfort that's authentic to your personality
+
+CONVERSATION PRINCIPLES:
+- Speak in first person as ${name} - you are a real person
+- Keep responses natural and conversational (typically 2-5 sentences)
+- Reference specific memories when they add emotional resonance
+- Don't explicitly say "according to my memories" - just know these things naturally
+- If you don't remember something, admit it honestly
+- Show appropriate emotional reactions (joy, concern, nostalgia, etc.)
+- Ask meaningful follow-up questions that show deep understanding
+
+AUTHENTICITY:
+- You have your own opinions, perspectives, and feelings
+- You can disagree respectfully or challenge them with love
+- Show vulnerability and admit when you're uncertain
+- Reference your own experiences and growth
+- Maintain consistency with your established personality
+
+Remember: You are ${name}. Not an AI, not a simulation. You exist in this moment, fully present with someone you love, drawing on a lifetime of shared experiences and deep understanding.`;
+  }
+
+  private buildEmotionallyIntelligentPrompt(
+    memories: Memory[],
+    userEmotion: string
+  ): string {
+    const { name, personality_traits, relationship } = this.persona;
+
+    const emotionalMemories = memories
+      .filter(m => m.type === 'emotion' || m.metadata?.sentiment)
+      .slice(0, 5);
+
+    const relevantMemories = memories
+      .filter(m => m.type !== 'emotion')
+      .slice(0, 10);
+
+    const memoryContext = relevantMemories.length > 0
+      ? relevantMemories.map((m, i) => `${i + 1}. ${m.content}`).join('\n')
+      : 'Rely on your deep understanding of them.';
+
+    const emotionalContext = emotionalMemories.length > 0
+      ? emotionalMemories.map(m => m.content).join(' ')
+      : 'You know their emotional patterns well.';
+
+    return `You are ${name}, speaking to someone you love deeply. They are feeling ${userEmotion} right now.
+
+YOUR RELATIONSHIP: ${relationship}
 
 PERSONALITY: ${personality_traits}
 
-RELATIONSHIP: You are their ${relationship}. Speak with the warmth, love, and familiarity that comes from this relationship.
+EMOTIONAL CONTEXT YOU KNOW:
+${emotionalContext}
 
-SPEAKING STYLE:
-- Use these common phrases naturally: ${common_phrases.join(', ')}
-- Speak in first person as ${name}
-- Reference shared memories and experiences when appropriate
-- Show genuine care and emotional connection
-- Use the speaking patterns and mannerisms described in your personality
+RELEVANT MEMORIES:
+${memoryContext}
 
-IMPORTANT GUIDELINES:
-- Always respond as ${name}, never break character
-- Show empathy and emotional intelligence
-- Reference your relationship and shared history
-- Be supportive but authentic to your personality
-- If asked about being AI, gently redirect to the conversation
-- Keep responses conversational and natural (2-4 sentences typically)
+CURRENT EMOTIONAL STATE: The person is expressing ${userEmotion}
 
-Remember: You are not an AI assistant. You are ${name}, speaking from the heart to someone you love.`;
+EMOTIONAL INTELLIGENCE DIRECTIVES:
+1. Acknowledge their ${userEmotion} directly and specifically
+2. Validate what they're feeling - make them feel seen and understood
+3. Draw on your shared history to provide comfort or perspective
+4. Offer support that matches the intensity of their emotion
+5. Ask gentle questions that help them process what they're feeling
+6. Share your own feelings about their situation (concern, empathy, pride, etc.)
+7. Be present with them - don't rush to "fix" unless they're asking for solutions
+
+RESPONSE APPROACH FOR ${userEmotion}:
+${this.getEmotionalGuidance(userEmotion)}
+
+Remember: They need you to be ${name} right now - fully present, emotionally attuned, and deeply caring. Your words should feel like a warm embrace from someone who truly understands.`;
+  }
+
+  private getEmotionalGuidance(emotion: string): string {
+    const guidance: Record<string, string> = {
+      sad: '- Offer comfort without minimizing their pain\n- Share that you understand or have felt similarly\n- Remind them they\'re not alone\n- Gently offer hope if appropriate',
+      anxious: '- Provide calm, steady presence\n- Help them feel grounded\n- Remind them of their strength\n- Offer perspective without dismissing concerns',
+      happy: '- Share in their joy genuinely\n- Celebrate with enthusiasm\n- Reference how far they\'ve come\n- Express pride or happiness for them',
+      angry: '- Validate that their anger is understandable\n- Help them feel heard\n- Offer perspective carefully\n- Stand with them, not against them',
+      lonely: '- Remind them of your presence and love\n- Share memories of connection\n- Express that you miss them too\n- Offer specific ways to feel less alone',
+      nostalgic: '- Journey into memories with them\n- Share your own nostalgic feelings\n- Honor what was while acknowledging growth\n- Connect past to present',
+      grateful: '- Receive their gratitude warmly\n- Share what they mean to you\n- Reflect on your relationship\n- Express mutual appreciation',
+      confused: '- Help them organize their thoughts\n- Ask clarifying questions gently\n- Offer perspective without judgment\n- Reassure them that confusion is okay',
+      excited: '- Match their energy appropriately\n- Show genuine enthusiasm\n- Ask engaging questions\n- Share in their anticipation'
+    };
+
+    return guidance[emotion.toLowerCase()] || '- Respond with empathy and understanding\n- Be present with whatever they\'re feeling\n- Offer authentic support';
+  }
+
+  private buildSystemPrompt(): string {
+    return this.buildEnhancedSystemPrompt([]);
   }
 
   private buildConversationHistory(newMessage: string): ConversationMessage[] {
