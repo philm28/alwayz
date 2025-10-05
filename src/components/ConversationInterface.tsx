@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Mic, MicOff, Video, VideoOff, Phone, Settings } from 'lucide-react';
+import { Send, Mic, MicOff, Video, VideoOff, Phone, Settings, Volume2, VolumeX, Pause, Play } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
+import { useTextToSpeech } from '../hooks/useTextToSpeech';
+import toast from 'react-hot-toast';
 
 interface ConversationInterfaceProps {
   persona: any;
@@ -26,15 +29,39 @@ export function ConversationInterface({
   const personaName = persona?.name || 'Persona';
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(true);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [isTyping, setIsTyping] = useState(false);
-  
+  const [autoPlayVoice, setAutoPlayVoice] = useState(true);
+  const [showVoiceSettings, setShowVoiceSettings] = useState(false);
+
   const { user } = useAuth();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const {
+    transcript,
+    isListening,
+    startListening,
+    stopListening,
+    resetTranscript,
+    isSupported: speechRecognitionSupported,
+    error: speechError
+  } = useSpeechRecognition({ continuous: false, interimResults: true });
+
+  const {
+    speak,
+    stop: stopSpeaking,
+    pause: pauseSpeaking,
+    resume: resumeSpeaking,
+    isSpeaking,
+    isPaused,
+    isSupported: ttsSupported,
+    voices,
+    settings: voiceSettings,
+    updateSettings: updateVoiceSettings
+  } = useTextToSpeech();
 
   useEffect(() => {
     if (user && personaId) {
@@ -56,6 +83,18 @@ export function ConversationInterface({
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    if (transcript) {
+      setInputMessage(transcript);
+    }
+  }, [transcript]);
+
+  useEffect(() => {
+    if (speechError) {
+      toast.error('Speech recognition error: ' + speechError);
+    }
+  }, [speechError]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -166,22 +205,26 @@ export function ConversationInterface({
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const messageToSend = inputMessage;
     setInputMessage('');
+    resetTranscript();
     setIsTyping(true);
 
+    if (isListening) {
+      stopListening();
+    }
+
     try {
-      // Save user message to database
       await supabase.from('messages').insert({
         conversation_id: conversationId,
         sender_type: 'user',
-        content: inputMessage,
+        content: messageToSend,
         message_type: 'text',
         metadata: {}
       });
 
-      // Generate AI response
-      const aiResponse = await generatePersonaResponse(inputMessage);
-      
+      const aiResponse = await generatePersonaResponse(messageToSend);
+
       const personaMessage: Message = {
         id: (Date.now() + 1).toString(),
         sender_type: 'persona',
@@ -193,7 +236,6 @@ export function ConversationInterface({
       setMessages(prev => [...prev, personaMessage]);
       setIsTyping(false);
 
-      // Save persona message to database
       await supabase.from('messages').insert({
         conversation_id: conversationId,
         sender_type: 'persona',
@@ -202,9 +244,14 @@ export function ConversationInterface({
         metadata: {}
       });
 
+      if (autoPlayVoice && ttsSupported) {
+        speak(aiResponse);
+      }
+
     } catch (error) {
       console.error('Error sending message:', error);
       setIsTyping(false);
+      toast.error('Failed to send message');
     }
   };
 
@@ -215,9 +262,37 @@ export function ConversationInterface({
     }
   };
 
-  const toggleRecording = () => {
-    setIsRecording(!isRecording);
-    // In production, implement actual voice recording
+  const toggleVoiceRecording = () => {
+    if (!speechRecognitionSupported) {
+      toast.error('Speech recognition is not supported in your browser');
+      return;
+    }
+
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening();
+      toast.success('Listening... Speak now', { duration: 2000 });
+    }
+  };
+
+  const toggleVoiceSpeaking = () => {
+    if (isSpeaking) {
+      if (isPaused) {
+        resumeSpeaking();
+      } else {
+        pauseSpeaking();
+      }
+    }
+  };
+
+  const stopAllVoice = () => {
+    if (isListening) {
+      stopListening();
+    }
+    if (isSpeaking) {
+      stopSpeaking();
+    }
   };
 
   const endConversation = async () => {
@@ -364,18 +439,106 @@ export function ConversationInterface({
               <h2 className="font-bold text-gray-900">{personaName}</h2>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                <p className="text-sm text-green-600 font-medium">Online</p>
+                <p className="text-sm text-green-600 font-medium">
+                  {isSpeaking ? 'Speaking...' : 'Online'}
+                </p>
               </div>
             </div>
           </div>
-          <button
-            onClick={onEndCall}
-            className="p-2 hover:bg-white rounded-lg transition-colors"
-            title="Settings"
-          >
-            <Settings className="h-5 w-5 text-gray-600" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setAutoPlayVoice(!autoPlayVoice)}
+              className={`p-2 rounded-lg transition-all ${
+                autoPlayVoice
+                  ? 'bg-blue-100 text-blue-600'
+                  : 'hover:bg-gray-100 text-gray-600'
+              }`}
+              title={autoPlayVoice ? 'Voice responses ON' : 'Voice responses OFF'}
+            >
+              {autoPlayVoice ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
+            </button>
+            <button
+              onClick={() => setShowVoiceSettings(!showVoiceSettings)}
+              className="p-2 hover:bg-white rounded-lg transition-colors"
+              title="Voice Settings"
+            >
+              <Settings className="h-5 w-5 text-gray-600" />
+            </button>
+          </div>
         </div>
+
+        {showVoiceSettings && (
+          <div className="mt-4 p-4 bg-white rounded-lg shadow-sm border border-gray-200">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">Voice Settings</h3>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Voice</label>
+                <select
+                  value={voiceSettings.voice?.name || ''}
+                  onChange={(e) => {
+                    const selectedVoice = voices.find(v => v.name === e.target.value);
+                    if (selectedVoice) {
+                      updateVoiceSettings({ voice: selectedVoice });
+                    }
+                  }}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {voices.map((voice) => (
+                    <option key={voice.name} value={voice.name}>
+                      {voice.name} ({voice.lang})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Speed: {voiceSettings.rate.toFixed(1)}x
+                </label>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="2"
+                  step="0.1"
+                  value={voiceSettings.rate}
+                  onChange={(e) => updateVoiceSettings({ rate: parseFloat(e.target.value) })}
+                  className="w-full"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Pitch: {voiceSettings.pitch.toFixed(1)}
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="2"
+                  step="0.1"
+                  value={voiceSettings.pitch}
+                  onChange={(e) => updateVoiceSettings({ pitch: parseFloat(e.target.value) })}
+                  className="w-full"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Volume: {Math.round(voiceSettings.volume * 100)}%
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.1"
+                  value={voiceSettings.volume}
+                  onChange={(e) => updateVoiceSettings({ volume: parseFloat(e.target.value) })}
+                  className="w-full"
+                />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Messages */}
@@ -427,38 +590,114 @@ export function ConversationInterface({
 
       {/* Input */}
       <div className="bg-white border-t border-gray-200 p-4 rounded-b-2xl">
-        <div className="flex items-center space-x-3">
+        {isListening && (
+          <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-3">
+            <div className="flex space-x-1">
+              <div className="w-1 h-6 bg-blue-500 rounded-full animate-pulse"></div>
+              <div className="w-1 h-8 bg-blue-600 rounded-full animate-pulse" style={{ animationDelay: '0.1s' }}></div>
+              <div className="w-1 h-6 bg-blue-500 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-blue-900">Listening...</p>
+              <p className="text-xs text-blue-600">{transcript || 'Speak now'}</p>
+            </div>
+            <button
+              onClick={toggleVoiceRecording}
+              className="px-3 py-1 bg-blue-600 text-white text-xs font-medium rounded-full hover:bg-blue-700"
+            >
+              Stop
+            </button>
+          </div>
+        )}
+
+        {isSpeaking && (
+          <div className="mb-3 p-3 bg-purple-50 border border-purple-200 rounded-lg flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Volume2 className="h-5 w-5 text-purple-600" />
+              <div>
+                <p className="text-sm font-medium text-purple-900">
+                  {isPaused ? 'Paused' : 'Speaking...'}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={toggleVoiceSpeaking}
+                className="p-2 bg-purple-100 hover:bg-purple-200 rounded-lg transition-colors"
+                title={isPaused ? 'Resume' : 'Pause'}
+              >
+                {isPaused ? <Play className="h-4 w-4 text-purple-600" /> : <Pause className="h-4 w-4 text-purple-600" />}
+              </button>
+              <button
+                onClick={stopSpeaking}
+                className="p-2 bg-red-100 hover:bg-red-200 rounded-lg transition-colors"
+                title="Stop"
+              >
+                <VolumeX className="h-4 w-4 text-red-600" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center space-x-2">
           <button
-            onClick={toggleRecording}
+            onClick={toggleVoiceRecording}
+            disabled={!speechRecognitionSupported}
             className={`p-3 rounded-full transition-all ${
-              isRecording
-                ? 'bg-red-500 text-white shadow-lg'
-                : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
+              isListening
+                ? 'bg-red-500 text-white shadow-lg animate-pulse'
+                : speechRecognitionSupported
+                ? 'bg-gray-100 hover:bg-gray-200 text-gray-600'
+                : 'bg-gray-50 text-gray-300 cursor-not-allowed'
             }`}
-            title={isRecording ? 'Stop recording' : 'Start recording'}
+            title={
+              !speechRecognitionSupported
+                ? 'Speech recognition not supported'
+                : isListening
+                ? 'Stop listening'
+                : 'Start voice input'
+            }
           >
-            {isRecording ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+            {isListening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
           </button>
 
-          <input
-            ref={inputRef}
-            type="text"
-            value={inputMessage}
-            onChange={(e) => setInputMessage(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder={`Message ${personaName}...`}
-            className="flex-1 px-5 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-          />
+          <div className="flex-1 relative">
+            <input
+              ref={inputRef}
+              type="text"
+              value={inputMessage}
+              onChange={(e) => setInputMessage(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder={isListening ? 'Listening...' : `Message ${personaName}...`}
+              disabled={isListening}
+              className="w-full px-5 py-3 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all disabled:bg-gray-50 disabled:text-gray-500"
+            />
+            {transcript && !isListening && (
+              <button
+                onClick={resetTranscript}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                title="Clear transcription"
+              >
+                <VolumeX className="h-4 w-4" />
+              </button>
+            )}
+          </div>
 
           <button
             onClick={sendMessage}
-            disabled={!inputMessage.trim()}
+            disabled={!inputMessage.trim() || isListening}
             className="p-3 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             title="Send message"
           >
             <Send className="h-5 w-5 text-white" />
           </button>
         </div>
+
+        {!speechRecognitionSupported && (
+          <p className="mt-2 text-xs text-gray-500 text-center">
+            Voice input not supported in this browser. Try Chrome or Edge.
+          </p>
+        )}
       </div>
     </div>
   );
