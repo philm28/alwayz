@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
-import { Facebook, Twitter, Instagram, Linkedin, Youtube, Globe, Link, CheckCircle, AlertCircle, Download, Lock } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Facebook, Twitter, Instagram, Linkedin, Youtube, Globe, Link, CheckCircle, AlertCircle, Download, Lock, RefreshCw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { metaGraphAPI } from '../lib/metaGraphAPI';
+import { useAuth } from '../hooks/useAuth';
+import toast from 'react-hot-toast';
 
 interface SocialMediaImportProps {
   personaId: string;
@@ -89,6 +92,28 @@ export function SocialMediaImport({ personaId, onImportComplete }: SocialMediaIm
   const [isImporting, setIsImporting] = useState(false);
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [showAuthModal, setShowAuthModal] = useState<string | null>(null);
+  const [connections, setConnections] = useState<any[]>([]);
+  const { user } = useAuth();
+
+  useEffect(() => {
+    loadConnections();
+  }, [personaId]);
+
+  const loadConnections = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('social_media_connections')
+        .select('*')
+        .eq('persona_id', personaId)
+        .eq('status', 'active');
+
+      if (!error && data) {
+        setConnections(data);
+      }
+    } catch (error) {
+      console.error('Error loading connections:', error);
+    }
+  };
 
   const togglePlatform = (platformId: string) => {
     setSelectedPlatforms(prev => 
@@ -101,19 +126,76 @@ export function SocialMediaImport({ personaId, onImportComplete }: SocialMediaIm
   const authenticatePlatform = async (platformId: string) => {
     try {
       setShowAuthModal(platformId);
-      
-      // Get OAuth URL for the platform
-      const { getOAuthUrl } = await import('../utils/socialMediaAPI');
-      const redirectUri = `${window.location.origin}/oauth/callback`;
-      const oauthUrl = getOAuthUrl(platformId, redirectUri);
-      
-      // Redirect to OAuth page
-      window.location.href = oauthUrl;
+
+      if (platformId === 'facebook' || platformId === 'instagram') {
+        const appId = import.meta.env.VITE_META_APP_ID;
+
+        if (!appId) {
+          toast.error('Meta App ID not configured. Please add VITE_META_APP_ID to your environment variables.');
+          setShowAuthModal(null);
+          return;
+        }
+
+        const redirectUri = `${window.location.origin}/oauth/callback`;
+        const scope = platformId === 'facebook'
+          ? 'public_profile,email,user_posts,user_photos'
+          : 'instagram_basic,instagram_content_publish';
+
+        const state = JSON.stringify({ platform: platformId, personaId });
+
+        const oauthUrl =
+          `https://www.facebook.com/v19.0/dialog/oauth?` +
+          `client_id=${appId}&` +
+          `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+          `scope=${scope}&` +
+          `state=${encodeURIComponent(state)}&` +
+          `response_type=code`;
+
+        window.location.href = oauthUrl;
+      } else {
+        const { getOAuthUrl } = await import('../utils/socialMediaAPI');
+        const redirectUri = `${window.location.origin}/oauth/callback`;
+        const oauthUrl = getOAuthUrl(platformId, redirectUri);
+        window.location.href = oauthUrl;
+      }
     } catch (error) {
       console.error('OAuth error:', error);
       setShowAuthModal(null);
-      // Show error message to user
-      alert(`OAuth not configured for ${platformId}. Please check your environment variables.`);
+      toast.error(`OAuth not configured for ${platformId}`);
+    }
+  };
+
+  const importFromMeta = async (platform: 'facebook' | 'instagram') => {
+    if (!user) return;
+
+    try {
+      toast.loading(`Importing ${platform} content...`, { id: 'meta-import' });
+
+      const connection = connections.find(c => c.platform === platform);
+
+      if (!connection || !connection.access_token) {
+        toast.error(`No ${platform} connection found. Please connect first.`, { id: 'meta-import' });
+        return;
+      }
+
+      metaGraphAPI.setAccessToken(connection.access_token);
+
+      const result = platform === 'facebook'
+        ? await metaGraphAPI.importFacebookContent(personaId, user.id)
+        : await metaGraphAPI.importInstagramContent(personaId, user.id);
+
+      if (result.success) {
+        toast.success(
+          `Imported ${result.postsImported} posts and extracted ${result.memoriesExtracted} memories!`,
+          { id: 'meta-import' }
+        );
+        await loadConnections();
+      } else {
+        toast.error(result.error || 'Import failed', { id: 'meta-import' });
+      }
+    } catch (error) {
+      console.error('Import error:', error);
+      toast.error('Failed to import content', { id: 'meta-import' });
     }
   };
 

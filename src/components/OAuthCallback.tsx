@@ -2,6 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { CheckCircle, AlertCircle, ArrowLeft } from 'lucide-react';
 import { exchangeCodeForToken } from '../utils/socialMediaAPI';
+import { metaGraphAPI } from '../lib/metaGraphAPI';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../hooks/useAuth';
 
 interface OAuthCallbackProps {
   onSuccess: (platform: string, accessToken: string) => void;
@@ -13,11 +16,12 @@ export function OAuthCallback({ onSuccess, onError, onCancel }: OAuthCallbackPro
   const [searchParams] = useSearchParams();
   const [status, setStatus] = useState<'processing' | 'success' | 'error'>('processing');
   const [message, setMessage] = useState('');
+  const { user } = useAuth();
 
   useEffect(() => {
     const processOAuthCallback = async () => {
       const code = searchParams.get('code');
-      const state = searchParams.get('state'); // This contains the platform name
+      const stateParam = searchParams.get('state');
       const error = searchParams.get('error');
 
       if (error) {
@@ -27,7 +31,7 @@ export function OAuthCallback({ onSuccess, onError, onCancel }: OAuthCallbackPro
         return;
       }
 
-      if (!code || !state) {
+      if (!code || !stateParam) {
         setStatus('error');
         setMessage('Missing authorization code or platform information');
         onError('Missing authorization code or platform information');
@@ -35,18 +39,52 @@ export function OAuthCallback({ onSuccess, onError, onCancel }: OAuthCallbackPro
       }
 
       try {
-        setMessage(`Exchanging authorization code for ${state} access token...`);
-        
-        // Exchange code for access token
-        const accessToken = await exchangeCodeForToken(
-          state, 
-          code, 
-          window.location.origin + '/oauth/callback'
-        );
+        let stateData;
+        try {
+          stateData = JSON.parse(stateParam);
+        } catch {
+          stateData = { platform: stateParam, personaId: null };
+        }
+
+        const { platform, personaId } = stateData;
+
+        setMessage(`Exchanging authorization code for ${platform} access token...`);
+
+        let accessToken: string;
+
+        if (platform === 'facebook' || platform === 'instagram') {
+          const redirectUri = `${window.location.origin}/oauth/callback`;
+          accessToken = await metaGraphAPI.exchangeCodeForToken(code, redirectUri);
+
+          const longLivedToken = await metaGraphAPI.getLongLivedToken(accessToken);
+          accessToken = longLivedToken;
+
+          metaGraphAPI.setAccessToken(accessToken);
+          const profile = await metaGraphAPI.getUserProfile();
+
+          if (user && personaId) {
+            await supabase.from('social_media_connections').upsert({
+              user_id: user.id,
+              persona_id: personaId,
+              platform,
+              access_token: accessToken,
+              platform_user_id: profile?.id,
+              platform_username: profile?.name,
+              status: 'active',
+              metadata: { profile }
+            });
+          }
+        } else {
+          accessToken = await exchangeCodeForToken(
+            platform,
+            code,
+            window.location.origin + '/oauth/callback'
+          );
+        }
 
         setStatus('success');
-        setMessage(`Successfully connected to ${state}!`);
-        onSuccess(state, accessToken);
+        setMessage(`Successfully connected to ${platform}!`);
+        onSuccess(platform, accessToken);
       } catch (error) {
         setStatus('error');
         setMessage(`Failed to connect: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -55,7 +93,7 @@ export function OAuthCallback({ onSuccess, onError, onCancel }: OAuthCallbackPro
     };
 
     processOAuthCallback();
-  }, [searchParams, onSuccess, onError]);
+  }, [searchParams, onSuccess, onError, user]);
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
