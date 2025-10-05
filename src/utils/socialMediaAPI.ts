@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { memoryExtractor } from '../lib/memoryExtraction';
 
 export interface SocialMediaConfig {
   platform: string;
@@ -12,17 +13,42 @@ export interface ScrapingResult {
   itemsScraped: number;
   content?: any[];
   error?: string;
+  memoriesExtracted?: number;
+}
+
+export interface SocialMediaPost {
+  id: string;
+  platform: string;
+  content: string;
+  mediaUrls: string[];
+  timestamp: string;
+  likes?: number;
+  comments?: number;
+  metadata?: any;
 }
 
 export async function initiateSocialMediaScraping(config: SocialMediaConfig): Promise<ScrapingResult> {
   try {
-    // Call the Supabase Edge Function for social media scraping
     const { data, error } = await supabase.functions.invoke('social-media-scraper', {
       body: config
     });
 
     if (error) {
       throw error;
+    }
+
+    if (data && data.success && data.content) {
+      await processScrapedContent(config.personaId, data.content, config.platform);
+
+      const memoriesExtracted = await extractMemoriesFromSocialMedia(
+        config.personaId,
+        data.content
+      );
+
+      return {
+        ...data,
+        memoriesExtracted
+      };
     }
 
     return data;
@@ -34,6 +60,102 @@ export async function initiateSocialMediaScraping(config: SocialMediaConfig): Pr
       error: error instanceof Error ? error.message : 'Unknown error occurred'
     };
   }
+}
+
+async function processScrapedContent(
+  personaId: string,
+  posts: SocialMediaPost[],
+  platform: string
+): Promise<void> {
+  try {
+    for (const post of posts) {
+      await supabase.from('persona_content').insert({
+        persona_id: personaId,
+        content_type: 'text',
+        file_name: `${platform}_post_${post.id}`,
+        file_url: null,
+        metadata: {
+          platform,
+          post_id: post.id,
+          content: post.content,
+          media_urls: post.mediaUrls,
+          timestamp: post.timestamp,
+          engagement: {
+            likes: post.likes,
+            comments: post.comments
+          },
+          raw_data: post.metadata
+        },
+        processing_status: 'pending'
+      });
+    }
+
+    console.log(`Saved ${posts.length} social media posts for processing`);
+  } catch (error) {
+    console.error('Error processing scraped content:', error);
+  }
+}
+
+async function extractMemoriesFromSocialMedia(
+  personaId: string,
+  posts: SocialMediaPost[]
+): Promise<number> {
+  let totalMemories = 0;
+
+  try {
+    for (const post of posts) {
+      if (post.content) {
+        const memories = await memoryExtractor.extractFromText(
+          post.content,
+          personaId
+        );
+
+        memories.forEach(memory => {
+          memory.source = 'social_media';
+          memory.metadata = {
+            ...memory.metadata,
+            platform: post.platform,
+            post_id: post.id,
+            timestamp: post.timestamp
+          };
+        });
+
+        await memoryExtractor.saveMemories(memories);
+        totalMemories += memories.length;
+      }
+
+      for (const imageUrl of post.mediaUrls) {
+        if (imageUrl.match(/\.(jpg|jpeg|png|gif)$/i)) {
+          try {
+            const memories = await memoryExtractor.extractFromImage(
+              imageUrl,
+              personaId
+            );
+
+            memories.forEach(memory => {
+              memory.source = 'social_media';
+              memory.metadata = {
+                ...memory.metadata,
+                platform: post.platform,
+                post_id: post.id
+              };
+            });
+
+            await memoryExtractor.saveMemories(memories);
+            totalMemories += memories.length;
+          } catch (error) {
+            console.warn('Failed to extract from image:', imageUrl, error);
+          }
+        }
+      }
+    }
+
+    console.log(`Extracted ${totalMemories} memories from social media`);
+  } catch (error) {
+    console.error('Error extracting memories from social media:', error);
+  }
+
+  return totalMemories;
 }
 
 export function getOAuthUrl(platform: string, redirectUri: string): string {
