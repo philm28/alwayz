@@ -1,8 +1,9 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, File, Video, Music, Image, FileText, X, CheckCircle, AlertCircle } from 'lucide-react';
+import { Upload, File, Video, Music, Image, FileText, X, CheckCircle, AlertCircle, Mic } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
+import { VoiceRecorder } from './VoiceRecorder';
 
 interface FileUploadProps {
   personaId: string;
@@ -25,6 +26,7 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [bucketError, setBucketError] = useState<string | null>(null);
   const [bucketChecked, setBucketChecked] = useState(false);
+  const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
 
   useEffect(() => {
     checkAndCreateBucket();
@@ -343,6 +345,27 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  const handleVoiceRecordingsComplete = async (recordings: File[]) => {
+    setShowVoiceRecorder(false);
+
+    if (!isPersonaIdValid) {
+      toast.error('Please select a persona before uploading voice samples');
+      return;
+    }
+
+    await onDrop(recordings);
+    toast.success('Voice samples uploaded successfully! Your voice clone is being created.');
+  };
+
+  if (showVoiceRecorder) {
+    return (
+      <VoiceRecorder
+        onRecordingsComplete={handleVoiceRecordingsComplete}
+        onCancel={() => setShowVoiceRecorder(false)}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Persona Selection Error Alert */}
@@ -353,7 +376,7 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
             <div>
               <h4 className="text-yellow-800 font-medium">No Persona Selected</h4>
               <p className="text-yellow-700 text-sm mt-1">
-                Please select a persona from your dashboard before uploading content. 
+                Please select a persona from your dashboard before uploading content.
                 Content must be associated with a specific persona for training.
               </p>
             </div>
@@ -411,6 +434,33 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
         </div>
       )}
 
+      {/* Voice Recording Option */}
+      {!bucketError && isPersonaIdValid && (
+        <div className="bg-gradient-to-r from-blue-50 to-cyan-50 rounded-2xl p-6 border-2 border-blue-200">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-full flex items-center justify-center flex-shrink-0">
+              <Mic className="h-6 w-6 text-white" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                Record Voice Samples for Voice Cloning
+              </h3>
+              <p className="text-gray-600 mb-4">
+                Create a high-quality voice clone by recording 3 short voice samples using optimized scripts.
+                This takes just 2-3 minutes and produces professional results with ElevenLabs.
+              </p>
+              <button
+                onClick={() => setShowVoiceRecorder(true)}
+                className="bg-gradient-to-r from-blue-600 to-cyan-600 text-white px-6 py-3 rounded-lg font-semibold hover:shadow-lg transition-all duration-300 flex items-center gap-2"
+              >
+                <Mic className="h-5 w-5" />
+                Start Voice Recording
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Upload Area */}
       <div
         {...getRootProps()}
@@ -425,17 +475,17 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
         <input {...getInputProps()} />
         <Upload className={`h-12 w-12 mx-auto mb-4 ${bucketError || !isPersonaIdValid ? 'text-gray-300' : 'text-gray-400'}`} />
         <h3 className={`text-lg font-semibold mb-2 ${bucketError || !isPersonaIdValid ? 'text-gray-400' : 'text-gray-900'}`}>
-          {bucketError 
+          {bucketError
             ? 'Storage setup required'
             : !isPersonaIdValid
             ? 'Persona selection required'
-            : isDragActive 
-            ? 'Drop files here' 
+            : isDragActive
+            ? 'Drop files here'
             : 'Upload memories and content'
           }
         </h3>
         <p className={`mb-4 ${bucketError || !isPersonaIdValid ? 'text-gray-400' : 'text-gray-600'}`}>
-          {bucketError 
+          {bucketError
             ? 'Please configure storage bucket first'
             : !isPersonaIdValid
             ? 'Please select a persona first'
