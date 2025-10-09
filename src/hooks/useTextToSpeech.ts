@@ -43,8 +43,13 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
       setVoices(availableVoices);
 
       if (availableVoices.length > 0 && !settings.voice) {
-        const defaultVoice = availableVoices.find(v => v.default) || availableVoices[0];
-        setSettings(prev => ({ ...prev, voice: defaultVoice }));
+        const bestVoice = findBestVoice(availableVoices);
+        setSettings(prev => ({
+          ...prev,
+          voice: bestVoice,
+          rate: 0.95,
+          pitch: 1.0
+        }));
       }
     };
 
@@ -55,6 +60,47 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
       window.speechSynthesis.onvoiceschanged = null;
     };
   }, [isSupported]);
+
+  const findBestVoice = (availableVoices: SpeechSynthesisVoice[]): SpeechSynthesisVoice => {
+    const preferredVoices = [
+      'Samantha',
+      'Google UK English Female',
+      'Google US English Female',
+      'Microsoft Zira',
+      'Microsoft David',
+      'Alex',
+      'Karen',
+      'Moira',
+      'Tessa',
+      'Fiona',
+      'Daniel',
+      'Ava',
+      'Allison',
+      'Susan',
+      'Vicki'
+    ];
+
+    for (const preferred of preferredVoices) {
+      const voice = availableVoices.find(v =>
+        v.name.includes(preferred) && v.lang.startsWith('en')
+      );
+      if (voice) return voice;
+    }
+
+    const englishVoices = availableVoices.filter(v =>
+      v.lang.startsWith('en') &&
+      (v.name.toLowerCase().includes('natural') ||
+       v.name.toLowerCase().includes('premium') ||
+       v.name.toLowerCase().includes('enhanced'))
+    );
+
+    if (englishVoices.length > 0) {
+      return englishVoices[0];
+    }
+
+    const anyEnglishVoice = availableVoices.find(v => v.lang.startsWith('en-'));
+    return anyEnglishVoice || availableVoices[0];
+  };
 
   const speak = useCallback((text: string) => {
     if (!isSupported) {

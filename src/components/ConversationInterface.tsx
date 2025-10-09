@@ -108,6 +108,27 @@ export function ConversationInterface({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const getVoiceQualityScore = (voice: SpeechSynthesisVoice): number => {
+    let score = 0;
+    const name = voice.name.toLowerCase();
+
+    if (name.includes('natural') || name.includes('neural')) score += 10;
+    if (name.includes('premium') || name.includes('enhanced')) score += 8;
+    if (name.includes('google')) score += 6;
+    if (name.includes('samantha') || name.includes('alex') || name.includes('karen')) score += 7;
+    if (name.includes('microsoft')) score += 4;
+    if (voice.localService) score += 2;
+
+    return score;
+  };
+
+  const getVoiceQuality = (voice: SpeechSynthesisVoice): 'premium' | 'good' | 'basic' => {
+    const score = getVoiceQualityScore(voice);
+    if (score >= 8) return 'premium';
+    if (score >= 4) return 'good';
+    return 'basic';
+  };
+
   const initializeConversation = async () => {
     try {
       if (!user) {
@@ -549,7 +570,9 @@ export function ConversationInterface({
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Voice</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Voice (Premium voices at top)
+                </label>
                 <select
                   value={voiceSettings.voice?.name || ''}
                   onChange={(e) => {
@@ -560,12 +583,26 @@ export function ConversationInterface({
                   }}
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  {voices.map((voice) => (
-                    <option key={voice.name} value={voice.name}>
-                      {voice.name} ({voice.lang})
-                    </option>
-                  ))}
+                  {voices
+                    .filter(v => v.lang.startsWith('en'))
+                    .sort((a, b) => {
+                      const aScore = getVoiceQualityScore(a);
+                      const bScore = getVoiceQualityScore(b);
+                      return bScore - aScore;
+                    })
+                    .map((voice) => {
+                      const quality = getVoiceQuality(voice);
+                      return (
+                        <option key={voice.name} value={voice.name}>
+                          {quality === 'premium' ? '⭐ ' : quality === 'good' ? '✓ ' : ''}
+                          {voice.name}
+                        </option>
+                      );
+                    })}
                 </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  ⭐ Premium quality · ✓ Good quality
+                </p>
               </div>
 
               <div>
@@ -576,11 +613,14 @@ export function ConversationInterface({
                   type="range"
                   min="0.5"
                   max="2"
-                  step="0.1"
+                  step="0.05"
                   value={voiceSettings.rate}
                   onChange={(e) => updateVoiceSettings({ rate: parseFloat(e.target.value) })}
                   className="w-full"
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  Recommended: 0.90-0.95 for natural speech
+                </p>
               </div>
 
               <div>
