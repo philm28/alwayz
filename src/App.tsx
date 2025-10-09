@@ -356,89 +356,103 @@ function App() {
     }
 
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/30">
         <SEOHead title="Dashboard" />
         <Navigation />
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Your Personas</h1>
-            <p className="text-gray-600">Create and manage AI personas of your loved ones</p>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+          <div className="mb-10 flex items-center justify-between">
+            <div>
+              <h1 className="text-4xl font-bold text-gray-900 mb-3">Your Personas</h1>
+              <p className="text-lg text-gray-600">Connect with AI recreations of your loved ones</p>
+            </div>
+            {personas.length > 0 && (
+              <button
+                onClick={() => setCurrentView('create-persona')}
+                className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition-all transform hover:scale-105"
+              >
+                <Plus className="h-5 w-5" />
+                New Persona
+              </button>
+            )}
           </div>
 
           {personas.length === 0 ? (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-12 text-center">
-              <div className="w-20 h-20 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                <Heart className="h-10 w-10 text-blue-600" />
+            <div className="bg-white rounded-3xl shadow-xl border border-gray-100 p-16 text-center">
+              <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-8 shadow-lg">
+                <Heart className="h-12 w-12 text-white" fill="currentColor" />
               </div>
-              <h3 className="text-2xl font-bold text-gray-900 mb-3">Create Your First Persona</h3>
-              <p className="text-gray-600 mb-8 max-w-md mx-auto">
-                Start by creating a persona to preserve the memories and personality of someone special
+              <h3 className="text-3xl font-bold text-gray-900 mb-4">Create Your First Persona</h3>
+              <p className="text-lg text-gray-600 mb-10 max-w-2xl mx-auto leading-relaxed">
+                Begin your journey by creating an AI persona. Upload memories, voice recordings, and messages to bring their personality to life.
               </p>
               <button
                 onClick={() => setCurrentView('create-persona')}
-                className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-4 rounded-full text-lg font-semibold hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+                className="inline-flex items-center gap-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-10 py-5 rounded-full text-lg font-semibold hover:shadow-2xl transition-all duration-300 transform hover:scale-105"
               >
-                <Plus className="h-5 w-5" />
-                Create Persona
+                <Plus className="h-6 w-6" />
+                Create Your First Persona
               </button>
             </div>
           ) : (
-            <div className="space-y-6">
-              <button
-                onClick={() => setCurrentView('create-persona')}
-                className="w-full bg-white border-2 border-dashed border-gray-300 rounded-2xl p-8 hover:border-blue-500 hover:bg-blue-50 transition-all group"
-              >
-                <div className="flex items-center justify-center gap-3">
-                  <Plus className="h-6 w-6 text-gray-400 group-hover:text-blue-600" />
-                  <span className="text-lg font-semibold text-gray-600 group-hover:text-blue-600">
-                    Create New Persona
-                  </span>
-                </div>
-              </button>
-
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {personas.map((persona: any) => (
-                  <div
-                    key={persona.id}
-                    className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-xl transition-all duration-300 cursor-pointer group"
-                    onClick={() => {
-                      setSelectedPersona(persona);
-                      setCurrentView('conversation');
-                    }}
-                  >
-                    <div className="aspect-video bg-gradient-to-br from-blue-500 to-purple-600 relative overflow-hidden">
-                      {persona.avatar_url ? (
-                        <img src={persona.avatar_url} alt={persona.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="flex items-center justify-center h-full">
-                          <Heart className="h-16 w-16 text-white opacity-80" fill="currentColor" />
-                        </div>
-                      )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </div>
-
-                    <div className="p-6">
-                      <h3 className="text-xl font-bold text-gray-900 mb-2 group-hover:text-blue-600 transition-colors">
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {personas.map((persona: any) => (
+                <div
+                  key={persona.id}
+                  className="group bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden hover:shadow-2xl transition-all duration-300 cursor-pointer transform hover:-translate-y-1"
+                  onClick={() => {
+                    setSelectedPersona(persona);
+                    setCurrentView('conversation');
+                  }}
+                >
+                  <div className="aspect-[4/3] bg-gradient-to-br from-blue-500 to-purple-600 relative overflow-hidden">
+                    {persona.avatar_url ? (
+                      <img src={persona.avatar_url} alt={persona.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                    ) : (
+                      <div className="flex items-center justify-center h-full">
+                        <Heart className="h-20 w-20 text-white opacity-90 group-hover:scale-110 transition-transform" fill="currentColor" />
+                      </div>
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent opacity-60 group-hover:opacity-80 transition-opacity" />
+                    <div className="absolute bottom-4 left-4 right-4">
+                      <h3 className="text-2xl font-bold text-white mb-1 drop-shadow-lg">
                         {persona.name}
                       </h3>
-                      <p className="text-sm text-gray-500 mb-4 capitalize">{persona.relationship}</p>
+                      <p className="text-sm text-white/90 capitalize drop-shadow">
+                        {persona.relationship}
+                      </p>
+                    </div>
+                  </div>
 
-                      <div className="flex items-center justify-between pt-4 border-t border-gray-100">
-                        <div className="flex items-center gap-2 text-sm text-gray-600">
-                          <Clock className="h-4 w-4" />
-                          <span>
-                            {new Date(persona.created_at).toLocaleDateString()}
-                          </span>
-                        </div>
-                        <button className="text-blue-600 hover:text-blue-700 font-medium text-sm">
-                          Open →
-                        </button>
+                  <div className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-sm text-gray-500">
+                        <Clock className="h-4 w-4" />
+                        <span>Created {new Date(persona.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-blue-600 font-semibold text-sm group-hover:gap-3 transition-all">
+                        <span>Open</span>
+                        <span>→</span>
                       </div>
                     </div>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
+
+              <button
+                onClick={() => setCurrentView('create-persona')}
+                className="group bg-white rounded-3xl shadow-lg border-2 border-dashed border-gray-300 p-12 hover:border-blue-500 hover:shadow-2xl transition-all duration-300 hover:bg-gradient-to-br hover:from-blue-50 hover:to-purple-50 transform hover:-translate-y-1 flex flex-col items-center justify-center min-h-[320px]"
+              >
+                <div className="w-16 h-16 bg-gradient-to-br from-blue-100 to-purple-100 group-hover:from-blue-500 group-hover:to-purple-600 rounded-full flex items-center justify-center mb-4 transition-all">
+                  <Plus className="h-8 w-8 text-blue-600 group-hover:text-white transition-colors" />
+                </div>
+                <span className="text-xl font-bold text-gray-600 group-hover:text-blue-600 transition-colors">
+                  Create New Persona
+                </span>
+                <span className="text-sm text-gray-500 mt-2">
+                  Preserve another memory
+                </span>
+              </button>
             </div>
           )}
         </div>
