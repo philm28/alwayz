@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
 import toast from 'react-hot-toast';
+import Webcam from 'react-webcam';
 
 interface ConversationInterfaceProps {
   persona: any;
@@ -39,6 +40,7 @@ export function ConversationInterface({
   const { user } = useAuth();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const webcamRef = useRef<Webcam>(null);
 
   const {
     transcript,
@@ -348,11 +350,18 @@ export function ConversationInterface({
           </div>
 
           {/* Self video */}
-          <div className="absolute top-4 right-4 w-32 h-24 bg-gray-800 rounded-lg border-2 border-white/20 flex items-center justify-center">
+          <div className="absolute top-4 right-4 w-48 h-36 bg-gray-800 rounded-lg border-2 border-white/20 overflow-hidden">
             {isVideoOn ? (
-              <div className="text-white text-xs">Your Video</div>
+              <Webcam
+                ref={webcamRef}
+                audio={false}
+                mirrored={true}
+                className="w-full h-full object-cover"
+              />
             ) : (
-              <VideoOff className="h-6 w-6 text-gray-400" />
+              <div className="w-full h-full flex items-center justify-center">
+                <VideoOff className="h-8 w-8 text-gray-400" />
+              </div>
             )}
           </div>
 
@@ -388,21 +397,28 @@ export function ConversationInterface({
         <div className="p-6 bg-black/50 backdrop-blur">
           <div className="flex justify-center items-center space-x-6 mb-4">
             <button
-              onClick={() => setIsMuted(!isMuted)}
+              onClick={() => {
+                if (isListening) {
+                  stopListening();
+                } else {
+                  startListening();
+                }
+                setIsMuted(!isMuted);
+              }}
               className={`p-4 rounded-full transition-colors ${
-                isMuted ? 'bg-red-500' : 'bg-white/20 hover:bg-white/30'
+                isMuted || !isListening ? 'bg-red-500' : 'bg-white/20 hover:bg-white/30'
               }`}
             >
-              {isMuted ? <MicOff className="h-6 w-6 text-white" /> : <Mic className="h-6 w-6 text-white" />}
+              {isMuted || !isListening ? <MicOff className="h-6 w-6 text-white" /> : <Mic className="h-6 w-6 text-white" />}
             </button>
-            
+
             <button
               onClick={endConversation}
               className="p-4 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
             >
               <Phone className="h-6 w-6 text-white" />
             </button>
-            
+
             <button
               onClick={() => setIsVideoOn(!isVideoOn)}
               className={`p-4 rounded-full transition-colors ${
@@ -411,17 +427,65 @@ export function ConversationInterface({
             >
               {isVideoOn ? <Video className="h-6 w-6 text-white" /> : <VideoOff className="h-6 w-6 text-white" />}
             </button>
+
+            <button
+              onClick={() => {
+                if (isSpeaking) {
+                  stopSpeaking();
+                } else {
+                  setAutoPlayVoice(!autoPlayVoice);
+                }
+              }}
+              className={`p-4 rounded-full transition-colors ${
+                autoPlayVoice ? 'bg-white/20 hover:bg-white/30' : 'bg-red-500'
+              }`}
+            >
+              {autoPlayVoice ? <Volume2 className="h-6 w-6 text-white" /> : <VolumeX className="h-6 w-6 text-white" />}
+            </button>
           </div>
+
+          {/* Voice indicator */}
+          {isListening && (
+            <div className="text-center mb-3">
+              <span className="inline-flex items-center gap-2 text-white text-sm bg-red-500/80 px-3 py-1 rounded-full">
+                <span className="animate-pulse">●</span>
+                Listening...
+              </span>
+            </div>
+          )}
+
+          {isSpeaking && (
+            <div className="text-center mb-3">
+              <span className="inline-flex items-center gap-2 text-white text-sm bg-blue-500/80 px-3 py-1 rounded-full">
+                <span className="animate-pulse">●</span>
+                {personaName} is speaking...
+              </span>
+            </div>
+          )}
 
           {/* Message input */}
           <div className="flex items-center space-x-3">
+            <button
+              onClick={() => {
+                if (isListening) {
+                  stopListening();
+                } else {
+                  startListening();
+                }
+              }}
+              className={`p-2 rounded-full transition-colors ${
+                isListening ? 'bg-red-500' : 'bg-white/20 hover:bg-white/30'
+              }`}
+            >
+              {isListening ? <MicOff className="h-5 w-5 text-white" /> : <Mic className="h-5 w-5 text-white" />}
+            </button>
             <input
               ref={inputRef}
               type="text"
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Type a message..."
+              placeholder={isListening ? "Listening..." : "Type or speak..."}
               className="flex-1 bg-white/20 backdrop-blur text-white placeholder-gray-300 px-4 py-2 rounded-full focus:outline-none focus:ring-2 focus:ring-purple-500"
             />
             <button

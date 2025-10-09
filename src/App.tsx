@@ -25,6 +25,7 @@ function App() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [selectedPersona, setSelectedPersona] = useState<any>(null);
+  const [conversationType, setConversationType] = useState<'chat' | 'video_call' | 'voice_call'>('chat');
 
   const { user, loading: authLoading, signOut } = useAuth();
   const { personas, loading: personasLoading, createPersona } = usePersonas();
@@ -489,24 +490,66 @@ function App() {
             >
               ← Back to Dashboard
             </button>
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                {selectedPersona.avatar_url ? (
-                  <img src={selectedPersona.avatar_url} alt={selectedPersona.name} className="w-full h-full rounded-full object-cover" />
-                ) : (
-                  <Heart className="h-8 w-8 text-white" fill="currentColor" />
-                )}
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                  {selectedPersona.avatar_url ? (
+                    <img src={selectedPersona.avatar_url} alt={selectedPersona.name} className="w-full h-full rounded-full object-cover" />
+                  ) : (
+                    <Heart className="h-8 w-8 text-white" fill="currentColor" />
+                  )}
+                </div>
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">{selectedPersona.name}</h1>
+                  <p className="text-gray-600 capitalize">{selectedPersona.relationship}</p>
+                </div>
               </div>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">{selectedPersona.name}</h1>
-                <p className="text-gray-600 capitalize">{selectedPersona.relationship}</p>
+
+              <div className="flex gap-2 bg-white rounded-lg p-1 shadow-sm">
+                <button
+                  onClick={() => setConversationType('chat')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
+                    conversationType === 'chat'
+                      ? 'bg-blue-500 text-white'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  <span className="text-sm font-medium">Chat</span>
+                </button>
+                <button
+                  onClick={() => setConversationType('voice_call')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
+                    conversationType === 'voice_call'
+                      ? 'bg-blue-500 text-white'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  <Heart className="h-4 w-4" />
+                  <span className="text-sm font-medium">Voice</span>
+                </button>
+                <button
+                  onClick={() => setConversationType('video_call')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
+                    conversationType === 'video_call'
+                      ? 'bg-blue-500 text-white'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  <Video className="h-4 w-4" />
+                  <span className="text-sm font-medium">Video</span>
+                </button>
               </div>
             </div>
           </div>
 
           <div className="grid lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
-              <ConversationInterface persona={selectedPersona} />
+              <ConversationInterface
+                persona={selectedPersona}
+                conversationType={conversationType}
+                onEndCall={() => setConversationType('chat')}
+              />
             </div>
             <div className="space-y-6">
               <MemoryViewer personaId={selectedPersona.id} personaName={selectedPersona.name} />
