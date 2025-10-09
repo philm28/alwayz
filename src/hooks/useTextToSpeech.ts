@@ -62,42 +62,50 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
       return;
     }
 
-    window.speechSynthesis.cancel();
+    if (!text || text.trim().length === 0) {
+      return;
+    }
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.voice = settings.voice;
-    utterance.rate = settings.rate;
-    utterance.pitch = settings.pitch;
-    utterance.volume = settings.volume;
+    if (window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel();
+    }
 
-    utterance.onstart = () => {
-      setIsSpeaking(true);
-      setIsPaused(false);
-    };
+    setTimeout(() => {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.voice = settings.voice;
+      utterance.rate = settings.rate;
+      utterance.pitch = settings.pitch;
+      utterance.volume = settings.volume;
 
-    utterance.onend = () => {
-      setIsSpeaking(false);
-      setIsPaused(false);
-      utteranceRef.current = null;
-    };
+      utterance.onstart = () => {
+        setIsSpeaking(true);
+        setIsPaused(false);
+      };
 
-    utterance.onerror = (event) => {
-      console.error('Speech synthesis error:', event);
-      setIsSpeaking(false);
-      setIsPaused(false);
-      utteranceRef.current = null;
-    };
+      utterance.onend = () => {
+        setIsSpeaking(false);
+        setIsPaused(false);
+        utteranceRef.current = null;
+      };
 
-    utterance.onpause = () => {
-      setIsPaused(true);
-    };
+      utterance.onerror = (event) => {
+        console.error('Speech synthesis error:', event);
+        setIsSpeaking(false);
+        setIsPaused(false);
+        utteranceRef.current = null;
+      };
 
-    utterance.onresume = () => {
-      setIsPaused(false);
-    };
+      utterance.onpause = () => {
+        setIsPaused(true);
+      };
 
-    utteranceRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
+      utterance.onresume = () => {
+        setIsPaused(false);
+      };
+
+      utteranceRef.current = utterance;
+      window.speechSynthesis.speak(utterance);
+    }, 50);
   }, [isSupported, settings]);
 
   const stop = useCallback(() => {

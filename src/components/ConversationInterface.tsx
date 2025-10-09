@@ -96,6 +96,12 @@ export function ConversationInterface({
     }
   }, [speechError]);
 
+  useEffect(() => {
+    return () => {
+      stopAllVoice();
+    };
+  }, []);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -214,6 +220,10 @@ export function ConversationInterface({
       stopListening();
     }
 
+    if (isSpeaking) {
+      stopSpeaking();
+    }
+
     try {
       await supabase.from('messages').insert({
         conversation_id: conversationId,
@@ -245,7 +255,9 @@ export function ConversationInterface({
       });
 
       if (autoPlayVoice && ttsSupported) {
-        speak(aiResponse);
+        setTimeout(() => {
+          speak(aiResponse);
+        }, 100);
       }
 
     } catch (error) {
