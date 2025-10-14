@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Brain, CheckCircle, Clock, AlertCircle, Zap, User, Heart, Upload } from 'lucide-react';
+import { Brain, CheckCircle, Clock, AlertCircle, Zap, User, Heart, Upload, Share2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import toast from 'react-hot-toast';
+import { FileUpload } from './FileUpload';
+import { SocialMediaImport } from './SocialMediaImport';
 
 interface PersonaTrainingProps {
   personaId?: string;
@@ -452,19 +454,67 @@ export function PersonaTraining({ personaId: initialPersonaId, onTrainingComplet
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm p-8">
-      <div className="text-center mb-8">
-        <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full flex items-center justify-center mx-auto mb-4">
-          <Brain className="h-8 w-8 text-white" />
+    <div className="space-y-8">
+      {/* Upload Content Section */}
+      <div className="bg-white rounded-2xl shadow-sm p-8">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center">
+            <Upload className="h-6 w-6 text-white" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900">Upload Content</h2>
+            <p className="text-gray-600">Add videos, audio, images, and documents</p>
+          </div>
         </div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">AI Training Progress</h2>
-        <p className="text-gray-600">
-          {isTraining 
-            ? 'Training your persona with uploaded content...' 
-            : 'Ready to start training your AI persona'
-          }
-        </p>
+
+        {personaId && (
+          <FileUpload
+            personaId={personaId}
+            onUploadComplete={() => {
+              console.log('Content uploaded successfully');
+              toast.success('Content uploaded successfully!');
+            }}
+          />
+        )}
       </div>
+
+      {/* Social Media Connections Section */}
+      <div className="bg-white rounded-2xl shadow-sm p-8">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center">
+            <Share2 className="h-6 w-6 text-white" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900">Social Media Connections</h2>
+            <p className="text-gray-600">Import memories from social platforms</p>
+          </div>
+        </div>
+
+        {personaId && (
+          <SocialMediaImport
+            personaId={personaId}
+            onImportComplete={() => {
+              console.log('Social media import completed');
+              toast.success('Social media content imported!');
+            }}
+          />
+        )}
+      </div>
+
+      {/* AI Training Section */}
+      <div className="bg-white rounded-2xl shadow-sm p-8">
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Brain className="h-8 w-8 text-white" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">AI Training Progress</h2>
+          <p className="text-gray-600">
+            {isTraining
+              ? 'Training your persona with uploaded content...'
+              : 'Ready to start training your AI persona'
+            }
+          </p>
+        </div>
 
       {/* Overall Progress */}
       <div className="mb-8">
@@ -542,6 +592,7 @@ export function PersonaTraining({ personaId: initialPersonaId, onTrainingComplet
             <span className="font-medium">Training completed successfully!</span>
           </div>
         )}
+      </div>
       </div>
     </div>
   );
