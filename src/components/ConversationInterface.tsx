@@ -135,22 +135,69 @@ export function ConversationInterface({
         throw new Error('User not authenticated');
       }
 
-      const { data, error } = await supabase
+      // Check if there's an active conversation from today
+      const { data: existingConversation } = await supabase
         .from('conversations')
-        .insert({
-          user_id: user.id,
-          persona_id: personaId,
-          conversation_type: conversationType,
-          started_at: new Date().toISOString(),
-          metadata: {}
-        })
-        .select()
-        .single();
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('persona_id', personaId)
+        .eq('conversation_type', conversationType)
+        .gte('started_at', new Date(new Date().setHours(0, 0, 0, 0)).toISOString())
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      if (error) throw error;
-      setConversationId(data.id);
+      if (existingConversation) {
+        // Continue existing conversation
+        setConversationId(existingConversation.id);
+        await loadConversationHistory(existingConversation.id);
+      } else {
+        // Create new conversation
+        const { data, error } = await supabase
+          .from('conversations')
+          .insert({
+            user_id: user.id,
+            persona_id: personaId,
+            conversation_type: conversationType,
+            started_at: new Date().toISOString(),
+            metadata: {}
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+        setConversationId(data.id);
+        addInitialMessages();
+      }
     } catch (error) {
       console.error('Error creating conversation:', error);
+      addInitialMessages();
+    }
+  };
+
+  const loadConversationHistory = async (convId: string) => {
+    try {
+      const { data: previousMessages } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('conversation_id', convId)
+        .order('timestamp', { ascending: true });
+
+      if (previousMessages && previousMessages.length > 0) {
+        const formattedMessages: Message[] = previousMessages.map(msg => ({
+          id: msg.id.toString(),
+          sender_type: msg.sender_type,
+          content: msg.content,
+          timestamp: msg.timestamp,
+          message_type: msg.message_type || 'text'
+        }));
+        setMessages(formattedMessages);
+      } else {
+        addInitialMessages();
+      }
+    } catch (error) {
+      console.error('Error loading conversation history:', error);
+      addInitialMessages();
     }
   };
 
@@ -180,7 +227,7 @@ export function ConversationInterface({
         throw new Error('Persona not found');
       }
 
-      // Get recent conversation history for context
+      // Get recent conversation history for context (last 10 messages)
       const { data: recentMessages } = await supabase
         .from('messages')
         .select('*')
@@ -188,14 +235,46 @@ export function ConversationInterface({
         .order('timestamp', { ascending: false })
         .limit(10);
 
-      // Create persona context
+      // Get all stored memories for this persona
+      const { data: storedMemories } = await supabase
+        .from('memories')
+        .select('*')
+        .eq('persona_id', personaId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      // Get conversation-extracted memories
+      const { data: conversationMemories } = await supabase
+        .from('conversation_memories')
+        .select('*')
+        .eq('persona_id', personaId)
+        .order('created_at', { ascending: false })
+        .limit(30);
+
+      // Combine and format memories
+      const allMemories = [
+        ...(storedMemories || []).map(m => ({
+          content: m.content,
+          type: m.memory_type || 'general',
+          source: 'uploaded',
+          timestamp: m.created_at
+        })),
+        ...(conversationMemories || []).map(m => ({
+          content: m.memory_content,
+          type: m.memory_type || 'conversation',
+          source: 'conversation',
+          timestamp: m.created_at
+        }))
+      ];
+
+      // Create persona context with all available information
       const personaContext = {
         id: persona.id,
         name: persona.name,
         personality_traits: persona.personality_traits || '',
         common_phrases: persona.common_phrases || [],
         relationship: persona.relationship || '',
-        memories: [],
+        memories: allMemories,
         conversationHistory: (recentMessages || []).reverse().map(msg => ({
           role: msg.sender_type === 'user' ? 'user' : 'assistant',
           content: msg.content,
@@ -206,7 +285,7 @@ export function ConversationInterface({
       // Use AI engine to generate response
       const { AIPersonaEngine } = await import('../lib/ai');
       const aiEngine = new AIPersonaEngine(personaContext);
-      
+
       return await aiEngine.generateResponse(userMessage);
     } catch (error) {
       console.error('Error generating persona response:', error);
