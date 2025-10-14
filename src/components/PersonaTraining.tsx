@@ -29,6 +29,7 @@ export function PersonaTraining({ personaId: initialPersonaId, onTrainingComplet
   const { user } = useAuth();
   const [currentStep, setCurrentStep] = useState<'form' | 'training'>(!initialPersonaId ? 'form' : 'training');
   const [personaId, setPersonaId] = useState<string | undefined>(initialPersonaId);
+  const [isCreating, setIsCreating] = useState(false);
   const [formData, setFormData] = useState<PersonaFormData>({
     name: '',
     relationship: '',
@@ -278,7 +279,19 @@ export function PersonaTraining({ personaId: initialPersonaId, onTrainingComplet
       return;
     }
 
+    setIsCreating(true);
+
     try {
+      console.log('Creating persona with data:', {
+        user_id: user.id,
+        name: formData.name.trim(),
+        relationship: formData.relationship,
+        gender: formData.gender,
+        description: formData.description.trim() || null,
+        status: 'training',
+        training_progress: 0
+      });
+
       const { data, error } = await supabase
         .from('personas')
         .insert({
@@ -293,14 +306,20 @@ export function PersonaTraining({ personaId: initialPersonaId, onTrainingComplet
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
 
+      console.log('Persona created successfully:', data);
       toast.success('Persona created successfully!');
       setPersonaId(data.id);
       setCurrentStep('training');
     } catch (error) {
       console.error('Error creating persona:', error);
-      toast.error('Failed to create persona. Please try again.');
+      toast.error(error instanceof Error ? error.message : 'Failed to create persona. Please try again.');
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -414,9 +433,17 @@ export function PersonaTraining({ personaId: initialPersonaId, onTrainingComplet
           <div className="pt-6">
             <button
               onClick={createPersona}
-              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-4 rounded-xl text-lg font-semibold hover:shadow-xl transition-all duration-300 transform hover:scale-[1.02]"
+              disabled={isCreating}
+              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-4 rounded-xl text-lg font-semibold hover:shadow-xl transition-all duration-300 transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
             >
-              Continue to Training
+              {isCreating ? (
+                <span className="flex items-center justify-center">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                  Creating Persona...
+                </span>
+              ) : (
+                'Continue to Training'
+              )}
             </button>
           </div>
         </div>
