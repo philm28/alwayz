@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Brain, CheckCircle, Clock, AlertCircle, Zap, User } from 'lucide-react';
+import { Brain, CheckCircle, Clock, AlertCircle, Zap, User, Heart, Upload } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../hooks/useAuth';
+import toast from 'react-hot-toast';
 
 interface PersonaTrainingProps {
-  personaId: string;
+  personaId?: string;
   onTrainingComplete?: () => void;
+  onComplete?: () => void;
 }
 
 interface TrainingStep {
@@ -15,7 +18,23 @@ interface TrainingStep {
   progress: number;
 }
 
-export function PersonaTraining({ personaId, onTrainingComplete }: PersonaTrainingProps) {
+interface PersonaFormData {
+  name: string;
+  relationship: string;
+  gender: 'male' | 'female' | '';
+  description: string;
+}
+
+export function PersonaTraining({ personaId: initialPersonaId, onTrainingComplete, onComplete }: PersonaTrainingProps) {
+  const { user } = useAuth();
+  const [currentStep, setCurrentStep] = useState<'form' | 'training'>(!initialPersonaId ? 'form' : 'training');
+  const [personaId, setPersonaId] = useState<string | undefined>(initialPersonaId);
+  const [formData, setFormData] = useState<PersonaFormData>({
+    name: '',
+    relationship: '',
+    gender: '',
+    description: ''
+  });
   const [trainingSteps, setTrainingSteps] = useState<TrainingStep[]>([
     {
       id: 'content-analysis',
@@ -73,9 +92,10 @@ export function PersonaTraining({ personaId, onTrainingComplete }: PersonaTraini
       // Delay callback to ensure database update completes
       setTimeout(() => {
         onTrainingComplete?.();
+        onComplete?.();
       }, 1000);
     }
-  }, [trainingSteps, isTraining, onTrainingComplete]);
+  }, [trainingSteps, isTraining, onTrainingComplete, onComplete]);
 
   const updatePersonaStatus = async (status: string, progress: number) => {
     try {
@@ -237,6 +257,53 @@ export function PersonaTraining({ personaId, onTrainingComplete }: PersonaTraini
     }
   };
 
+  const createPersona = async () => {
+    if (!user) {
+      toast.error('You must be logged in to create a persona');
+      return;
+    }
+
+    if (!formData.name.trim()) {
+      toast.error('Please enter a name for the persona');
+      return;
+    }
+
+    if (!formData.relationship.trim()) {
+      toast.error('Please select a relationship');
+      return;
+    }
+
+    if (!formData.gender) {
+      toast.error('Please select a gender');
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('personas')
+        .insert({
+          user_id: user.id,
+          name: formData.name.trim(),
+          relationship: formData.relationship,
+          gender: formData.gender,
+          description: formData.description.trim() || null,
+          status: 'training',
+          training_progress: 0
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      toast.success('Persona created successfully!');
+      setPersonaId(data.id);
+      setCurrentStep('training');
+    } catch (error) {
+      console.error('Error creating persona:', error);
+      toast.error('Failed to create persona. Please try again.');
+    }
+  };
+
   const getStepIcon = (status: string) => {
     switch (status) {
       case 'completed':
@@ -249,6 +316,113 @@ export function PersonaTraining({ personaId, onTrainingComplete }: PersonaTraini
         return <Clock className="h-5 w-5 text-gray-400" />;
     }
   };
+
+  if (currentStep === 'form') {
+    return (
+      <div className="bg-white rounded-3xl shadow-xl border border-gray-100 p-10">
+        <div className="text-center mb-10">
+          <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg">
+            <Heart className="h-10 w-10 text-white" fill="currentColor" />
+          </div>
+          <h2 className="text-3xl font-bold text-gray-900 mb-3">Create AI Persona</h2>
+          <p className="text-lg text-gray-600">
+            Tell us about the person you want to preserve
+          </p>
+        </div>
+
+        <div className="space-y-6 max-w-2xl mx-auto">
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Full Name *
+            </label>
+            <input
+              type="text"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              placeholder="e.g., Sarah Johnson"
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Relationship *
+            </label>
+            <select
+              value={formData.relationship}
+              onChange={(e) => setFormData({ ...formData, relationship: e.target.value })}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+            >
+              <option value="">Select relationship...</option>
+              <option value="mother">Mother</option>
+              <option value="father">Father</option>
+              <option value="grandmother">Grandmother</option>
+              <option value="grandfather">Grandfather</option>
+              <option value="spouse">Spouse</option>
+              <option value="partner">Partner</option>
+              <option value="sibling">Sibling</option>
+              <option value="child">Child</option>
+              <option value="friend">Friend</option>
+              <option value="mentor">Mentor</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Gender *
+            </label>
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, gender: 'male' })}
+                className={`px-6 py-4 border-2 rounded-xl font-semibold transition-all ${
+                  formData.gender === 'male'
+                    ? 'border-blue-600 bg-blue-50 text-blue-700'
+                    : 'border-gray-300 text-gray-700 hover:border-gray-400'
+                }`}
+              >
+                Male
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, gender: 'female' })}
+                className={`px-6 py-4 border-2 rounded-xl font-semibold transition-all ${
+                  formData.gender === 'female'
+                    ? 'border-blue-600 bg-blue-50 text-blue-700'
+                    : 'border-gray-300 text-gray-700 hover:border-gray-400'
+                }`}
+              >
+                Female
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Description (Optional)
+            </label>
+            <textarea
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              placeholder="Share a few words about them, their personality, hobbies, or memorable traits..."
+              rows={4}
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all resize-none"
+            />
+          </div>
+
+          <div className="pt-6">
+            <button
+              onClick={createPersona}
+              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-4 rounded-xl text-lg font-semibold hover:shadow-xl transition-all duration-300 transform hover:scale-[1.02]"
+            >
+              Continue to Training
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white rounded-2xl shadow-sm p-8">
