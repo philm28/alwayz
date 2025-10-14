@@ -52,6 +52,8 @@ export function ConversationInterface({
     error: speechError
   } = useSpeechRecognition({ continuous: false, interimResults: true });
 
+  const personaGender = (persona as any)?.gender as 'male' | 'female' | null;
+
   const {
     speak,
     stop: stopSpeaking,
@@ -63,7 +65,7 @@ export function ConversationInterface({
     voices,
     settings: voiceSettings,
     updateSettings: updateVoiceSettings
-  } = useTextToSpeech();
+  } = useTextToSpeech({ gender: personaGender });
 
   useEffect(() => {
     if (user && personaId) {

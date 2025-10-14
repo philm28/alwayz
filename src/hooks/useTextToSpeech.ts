@@ -20,7 +20,12 @@ interface UseTextToSpeechReturn {
   updateSettings: (settings: Partial<VoiceSettings>) => void;
 }
 
-export function useTextToSpeech(): UseTextToSpeechReturn {
+interface UseTextToSpeechOptions {
+  gender?: 'male' | 'female' | null;
+}
+
+export function useTextToSpeech(options?: UseTextToSpeechOptions): UseTextToSpeechReturn {
+  const { gender } = options || {};
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -43,7 +48,7 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
       setVoices(availableVoices);
 
       if (availableVoices.length > 0 && !settings.voice) {
-        const bestVoice = findBestVoice(availableVoices);
+        const bestVoice = findBestVoice(availableVoices, gender);
         setSettings(prev => ({
           ...prev,
           voice: bestVoice,
@@ -59,26 +64,42 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
     return () => {
       window.speechSynthesis.onvoiceschanged = null;
     };
-  }, [isSupported]);
+  }, [isSupported, gender]);
 
-  const findBestVoice = (availableVoices: SpeechSynthesisVoice[]): SpeechSynthesisVoice => {
-    const preferredVoices = [
+  const findBestVoice = (availableVoices: SpeechSynthesisVoice[], preferredGender?: 'male' | 'female' | null): SpeechSynthesisVoice => {
+    const femaleVoices = [
       'Samantha',
       'Google UK English Female',
       'Google US English Female',
       'Microsoft Zira',
-      'Microsoft David',
-      'Alex',
       'Karen',
       'Moira',
       'Tessa',
       'Fiona',
-      'Daniel',
       'Ava',
       'Allison',
       'Susan',
-      'Vicki'
+      'Vicki',
+      'Victoria',
+      'Kate',
+      'Serena'
     ];
+
+    const maleVoices = [
+      'Alex',
+      'Google UK English Male',
+      'Google US English Male',
+      'Microsoft David',
+      'Daniel',
+      'Fred',
+      'Tom',
+      'Oliver',
+      'James'
+    ];
+
+    const preferredVoices = preferredGender === 'male' ? maleVoices :
+                           preferredGender === 'female' ? femaleVoices :
+                           [...femaleVoices, ...maleVoices];
 
     for (const preferred of preferredVoices) {
       const voice = availableVoices.find(v =>
@@ -87,8 +108,15 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
       if (voice) return voice;
     }
 
+    const genderFilter = preferredGender === 'male' ?
+      (name: string) => name.toLowerCase().includes('male') && !name.toLowerCase().includes('female') :
+      preferredGender === 'female' ?
+      (name: string) => name.toLowerCase().includes('female') :
+      () => true;
+
     const englishVoices = availableVoices.filter(v =>
       v.lang.startsWith('en') &&
+      genderFilter(v.name) &&
       (v.name.toLowerCase().includes('natural') ||
        v.name.toLowerCase().includes('premium') ||
        v.name.toLowerCase().includes('enhanced'))
@@ -96,6 +124,14 @@ export function useTextToSpeech(): UseTextToSpeechReturn {
 
     if (englishVoices.length > 0) {
       return englishVoices[0];
+    }
+
+    const genderedVoices = availableVoices.filter(v =>
+      v.lang.startsWith('en') && genderFilter(v.name)
+    );
+
+    if (genderedVoices.length > 0) {
+      return genderedVoices[0];
     }
 
     const anyEnglishVoice = availableVoices.find(v => v.lang.startsWith('en-'));
