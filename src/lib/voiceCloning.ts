@@ -264,6 +264,41 @@ export class VoiceCloning {
     }
   }
 
+  async synthesizeSpeech(text: string, voiceModelId: string): Promise<Blob> {
+    try {
+      if (!ELEVENLABS_API_KEY) {
+        throw new Error('ElevenLabs API key not configured');
+      }
+
+      const response = await fetch(`${ELEVENLABS_API_URL}/text-to-speech/${voiceModelId}`, {
+        method: 'POST',
+        headers: {
+          'xi-api-key': ELEVENLABS_API_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          text,
+          model_id: 'eleven_multilingual_v2',
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+            style: 0,
+            use_speaker_boost: true
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`ElevenLabs API error: ${response.statusText}`);
+      }
+
+      return await response.blob();
+    } catch (error) {
+      console.error('Speech synthesis error:', error);
+      throw error;
+    }
+  }
+
   async synthesizeVoice(
     personaId: string,
     text: string,

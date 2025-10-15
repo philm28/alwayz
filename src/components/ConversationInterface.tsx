@@ -216,6 +216,31 @@ export function ConversationInterface({
     setMessages(initialMessages);
   };
 
+  const speakWithClonedVoice = async (text: string) => {
+    try {
+      const voiceModelId = persona?.voice_model_id;
+
+      if (voiceModelId && import.meta.env.VITE_ELEVENLABS_API_KEY) {
+        const { VoiceCloning } = await import('../lib/voiceCloning');
+        const voiceCloning = new VoiceCloning();
+        const audioBlob = await voiceCloning.synthesizeSpeech(text, voiceModelId);
+
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audio = new Audio(audioUrl);
+        audio.play();
+
+        audio.onended = () => URL.revokeObjectURL(audioUrl);
+      } else if (ttsSupported) {
+        speak(text);
+      }
+    } catch (error) {
+      console.error('Voice synthesis error:', error);
+      if (ttsSupported) {
+        speak(text);
+      }
+    }
+  };
+
   const generatePersonaResponse = async (userMessage: string): Promise<string> => {
     try {
       // Get persona data from database
@@ -358,9 +383,9 @@ export function ConversationInterface({
         metadata: {}
       });
 
-      if (autoPlayVoice && ttsSupported) {
-        setTimeout(() => {
-          speak(aiResponse);
+      if (autoPlayVoice) {
+        setTimeout(async () => {
+          await speakWithClonedVoice(aiResponse);
         }, 100);
       }
 

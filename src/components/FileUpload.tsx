@@ -236,13 +236,37 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
 
       console.log('Database save successful:', dbData);
 
+      // Process voice cloning for audio files
+      if (file.type.startsWith('audio/')) {
+        try {
+          const { VoiceCloning } = await import('../lib/voiceCloning');
+          const voiceCloning = new VoiceCloning();
+
+          console.log('Processing voice cloning for audio file...');
+          const voiceProfile = await voiceCloning.createVoiceProfile(personaId, [file]);
+
+          if (voiceProfile.voiceModelId) {
+            await supabase
+              .from('personas')
+              .update({ voice_model_id: voiceProfile.voiceModelId })
+              .eq('id', personaId);
+
+            console.log('Voice model linked to persona:', voiceProfile.voiceModelId);
+            toast.success('Voice cloned successfully!');
+          }
+        } catch (voiceError) {
+          console.error('Voice cloning error:', voiceError);
+          toast('Audio uploaded, but voice cloning unavailable', { icon: '⚠️' });
+        }
+      }
+
       setTimeout(() => {
         uploadedFile.status = 'completed';
         uploadedFile.progress = 100;
-        setUploadedFiles(prev => 
+        setUploadedFiles(prev =>
           prev.map(f => f.id === fileId ? uploadedFile : f)
         );
-        
+
         toast.success(`File "${file.name}" uploaded successfully!`);
       }, 2000);
 
