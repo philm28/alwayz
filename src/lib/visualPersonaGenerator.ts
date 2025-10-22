@@ -47,19 +47,31 @@ export class VisualPersonaGenerator {
 
     try {
       console.log('Starting visual persona generation for:', input.personaId);
-      
+
       // Step 1: Analyze visual content from images
       const visualAnalysis = await this.analyzeVisualContent(input.images);
-      
+
       // Step 2: Analyze voice and mannerisms from videos
       const audioVisualAnalysis = await this.analyzeAudioVisualContent(input.videos, input.audioFiles);
-      
+
       // Step 3: Synthesize persona using OpenAI
       const personaResult = await this.synthesizePersona(visualAnalysis, audioVisualAnalysis);
-      
-      // Step 4: Save results to database
+
+      // Step 4: Create ElevenLabs voice clone if audio files exist
+      if (input.audioFiles.length > 0 && import.meta.env.VITE_ELEVENLABS_API_KEY) {
+        console.log('Creating ElevenLabs voice clone...');
+        await this.createVoiceClone(input.personaId, input.audioFiles);
+      }
+
+      // Step 5: Generate D-ID avatar if images exist
+      if (input.images.length > 0 && import.meta.env.VITE_DID_API_KEY) {
+        console.log('Generating D-ID avatar...');
+        await this.generateDIDAvatar(input.personaId, input.images[0]);
+      }
+
+      // Step 6: Save results to database
       await this.savePersonaAnalysis(input.personaId, personaResult);
-      
+
       return personaResult;
     } catch (error) {
       console.error('Visual persona generation error:', error);
@@ -469,10 +481,165 @@ Respond in the following JSON format:
       };
 
       // Synthesize persona based on available content
-      return await this.synthesizePersona(visualAnalysis, audioVisualAnalysis);
+      const personaResult = await this.synthesizePersona(visualAnalysis, audioVisualAnalysis);
+
+      // Trigger ElevenLabs voice cloning if audio content exists
+      if ((audioFiles.length > 0 || videos.length > 0) && import.meta.env.VITE_ELEVENLABS_API_KEY) {
+        console.log('Triggering ElevenLabs voice cloning from existing content...');
+        this.createVoiceCloneFromStorage(personaId, audioFiles, videos).catch(err => {
+          console.error('Voice cloning failed:', err);
+        });
+      }
+
+      // Trigger D-ID avatar generation if images exist
+      if (images.length > 0 && import.meta.env.VITE_DID_API_KEY) {
+        console.log('Triggering D-ID avatar generation from existing content...');
+        this.generateDIDAvatarFromStorage(personaId, images[0]).catch(err => {
+          console.error('D-ID avatar generation failed:', err);
+        });
+      }
+
+      await this.savePersonaAnalysis(personaId, personaResult);
+
+      return personaResult;
     } catch (error) {
       console.error('Error generating persona from existing content:', error);
       throw error;
+    }
+  }
+
+  private async createVoiceClone(personaId: string, audioFiles: File[]): Promise<void> {
+    try {
+      const { VoiceCloning } = await import('./voiceCloning');
+      const voiceCloning = new VoiceCloning();
+
+      const voiceProfile = await voiceCloning.createVoiceProfile(personaId, audioFiles);
+      console.log('Voice profile created with ID:', voiceProfile.voiceModelId);
+
+      await supabase
+        .from('personas')
+        .update({
+          voice_model_id: voiceProfile.voiceModelId,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', personaId);
+
+      console.log('ElevenLabs voice clone created successfully');
+    } catch (error) {
+      console.error('Voice cloning error:', error);
+      captureException(error as Error, { context: 'voice_cloning', personaId });
+    }
+  }
+
+  private async generateDIDAvatar(personaId: string, imageFile: File): Promise<void> {
+    try {
+      const imagePath = `avatars/${personaId}/source-${Date.now()}.jpg`;
+
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('persona-content')
+        .upload(imagePath, imageFile);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('persona-content')
+        .getPublicUrl(imagePath);
+
+      const { DIDService } = await import('./didAvatar');
+      const didService = new DIDService();
+
+      const avatar = await didService.createTalkingAvatar({
+        sourceImageUrl: publicUrl,
+        text: "Hello! I'm excited to chat with you. This is my AI persona and I'm ready to have meaningful conversations."
+      });
+
+      await supabase
+        .from('personas')
+        .update({
+          avatar_video_url: avatar.videoUrl,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', personaId);
+
+      console.log('D-ID avatar generated successfully');
+    } catch (error) {
+      console.error('D-ID avatar generation error:', error);
+      captureException(error as Error, { context: 'did_avatar', personaId });
+    }
+  }
+
+  private async createVoiceCloneFromStorage(
+    personaId: string,
+    audioContent: any[],
+    videoContent: any[]
+  ): Promise<void> {
+    try {
+      const audioUrls: string[] = [];
+
+      for (const audio of audioContent) {
+        const { data: { publicUrl } } = supabase.storage
+          .from('persona-content')
+          .getPublicUrl(audio.storage_path);
+        audioUrls.push(publicUrl);
+      }
+
+      for (const video of videoContent) {
+        const { data: { publicUrl } } = supabase.storage
+          .from('persona-content')
+          .getPublicUrl(video.storage_path);
+        audioUrls.push(publicUrl);
+      }
+
+      if (audioUrls.length === 0) return;
+
+      const audioBlobs: Blob[] = [];
+      for (const url of audioUrls) {
+        const response = await fetch(url);
+        const blob = await response.blob();
+        audioBlobs.push(blob);
+      }
+
+      const audioFiles = audioBlobs.map((blob, index) =>
+        new File([blob], `sample${index}.mp3`, { type: 'audio/mpeg' })
+      );
+
+      const { VoiceCloning } = await import('./voiceCloning');
+      const voiceCloning = new VoiceCloning();
+
+      const voiceProfile = await voiceCloning.createVoiceProfile(personaId, audioFiles);
+      console.log('Voice clone created from storage with ID:', voiceProfile.voiceModelId);
+    } catch (error) {
+      console.error('Voice cloning from storage error:', error);
+      captureException(error as Error, { context: 'voice_cloning_storage', personaId });
+    }
+  }
+
+  private async generateDIDAvatarFromStorage(personaId: string, imageContent: any): Promise<void> {
+    try {
+      const { data: { publicUrl } } = supabase.storage
+        .from('persona-content')
+        .getPublicUrl(imageContent.storage_path);
+
+      const { DIDService } = await import('./didAvatar');
+      const didService = new DIDService();
+
+      const avatar = await didService.createTalkingAvatar({
+        sourceImageUrl: publicUrl,
+        text: "Hello! I'm excited to chat with you. This is my AI persona and I'm ready to have meaningful conversations."
+      });
+
+      await supabase
+        .from('personas')
+        .update({
+          avatar_video_url: avatar.videoUrl,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', personaId);
+
+      console.log('D-ID avatar generated from storage successfully');
+    } catch (error) {
+      console.error('D-ID avatar from storage error:', error);
+      captureException(error as Error, { context: 'did_avatar_storage', personaId });
     }
   }
 }
