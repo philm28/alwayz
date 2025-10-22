@@ -87,8 +87,10 @@ export function PersonaTraining({ personaId: initialPersonaId, onTrainingComplet
     setOverallProgress(avgProgress);
 
     // Check if training is complete
+    // IMPORTANT: Only trigger completion if training was explicitly started
+    // This prevents premature redirects when just uploading files
     const allCompleted = trainingSteps.every(step => step.status === 'completed');
-    if (allCompleted && isTraining) {
+    if (allCompleted && isTraining && avgProgress === 100) {
       setIsTraining(false);
       setTrainingCompleted(true);
       updatePersonaStatus('active', 100);

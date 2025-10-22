@@ -477,7 +477,9 @@ function App() {
 
         <PersonaTraining
           onComplete={() => {
-            setCurrentView('dashboard');
+            // Don't auto-redirect - let user stay on training page
+            // They can manually navigate back when ready
+            console.log('Training completed - persona is now active');
           }}
         />
       </div>
