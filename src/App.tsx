@@ -212,7 +212,52 @@ function App() {
         </div>
       </section>
 
+      {/* Video Demo Section */}
       <section className="py-20 px-4 sm:px-6 lg:px-8 bg-white">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-12">
+            <div className="inline-flex items-center gap-2 bg-blue-100 text-blue-700 px-4 py-2 rounded-full text-sm font-medium mb-6">
+              <Video className="h-4 w-4" />
+              See How It Works
+            </div>
+            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
+              Watch AlwayZ in Action
+            </h2>
+            <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+              See how easy it is to create an AI persona that preserves memories and personality forever
+            </p>
+          </div>
+
+          <div className="relative rounded-3xl overflow-hidden shadow-2xl border-4 border-gray-100 bg-gray-900">
+            <div className="aspect-video">
+              <iframe
+                className="w-full h-full"
+                src="https://www.youtube.com/embed/dQw4w9WgXcQ"
+                title="AlwayZ Demo Video"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              ></iframe>
+            </div>
+          </div>
+
+          <div className="mt-12 grid md:grid-cols-3 gap-8 text-center">
+            <div className="p-6">
+              <div className="text-4xl font-bold text-blue-600 mb-2">2-3 min</div>
+              <p className="text-gray-600">Average setup time</p>
+            </div>
+            <div className="p-6">
+              <div className="text-4xl font-bold text-purple-600 mb-2">99%</div>
+              <p className="text-gray-600">Voice accuracy rate</p>
+            </div>
+            <div className="p-6">
+              <div className="text-4xl font-bold text-pink-600 mb-2">24/7</div>
+              <p className="text-gray-600">Always available to chat</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-gray-50 to-gray-100">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
             <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
