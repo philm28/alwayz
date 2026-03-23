@@ -79,7 +79,6 @@ export class VoiceCloning {
       await supabase
         .from('personas')
         .update({
-          voice_model_id: voiceProfile.voiceModelId,
           metadata: {
             ...personaMetadata,
             voice_profile: voiceProfile,
@@ -258,6 +257,19 @@ export class VoiceCloning {
       voiceProfile.voiceModelId = data.voice_id;
 
       console.log('Voice model training completed with ID:', data.voice_id);
+
+      // ✅ FIX: Save the real ElevenLabs voice_id directly to Supabase
+      const { error: updateError } = await supabase
+        .from('personas')
+        .update({ voice_model_id: data.voice_id })
+        .eq('id', voiceProfile.personaId);
+
+      if (updateError) {
+        console.error('Failed to save voice_id to Supabase:', updateError);
+      } else {
+        console.log('✅ Voice ID saved to Supabase successfully:', data.voice_id);
+      }
+
     } catch (error) {
       console.error('Voice model training failed:', error);
       captureException(error as Error, { personaId: voiceProfile.personaId });
@@ -305,7 +317,36 @@ export class VoiceCloning {
     emotion?: string
   ): Promise<ArrayBuffer> {
     try {
-      const voiceProfile = this.voiceProfiles.get(personaId);
+      // ✅ FIX: Load voice profile from Supabase if not in memory
+      let voiceProfile = this.voiceProfiles.get(personaId);
+
+      if (!voiceProfile) {
+        const { data } = await supabase
+          .from('personas')
+          .select('voice_model_id, gender, metadata')
+          .eq('id', personaId)
+          .single();
+
+        if (data?.voice_model_id && !data.voice_model_id.startsWith('voice_')) {
+          voiceProfile = {
+            personaId,
+            voiceModelId: data.voice_model_id,
+            sampleAudioUrls: [],
+            voiceCharacteristics: {
+              pitch: 1.0,
+              speed: 1.0,
+              tone: 'warm',
+              accent: 'neutral',
+              gender: data.gender || 'neutral',
+              age: 'middle',
+              emotion: 'warm'
+            },
+            isCloned: true,
+            cloneQuality: 0.8
+          };
+          this.voiceProfiles.set(personaId, voiceProfile);
+        }
+      }
 
       if (ELEVENLABS_API_KEY && voiceProfile && voiceProfile.isCloned) {
         try {
@@ -320,15 +361,15 @@ export class VoiceCloning {
               model_id: 'eleven_multilingual_v2',
               voice_settings: {
                 stability: 0.5,
-                similarity_boost: 0.75,
-                style: emotion ? 0.5 : 0,
+                similarity_boost: 0.85,
+                style: emotion ? 0.5 : 0.2,
                 use_speaker_boost: true
               }
             })
           });
 
           if (response.ok) {
-            console.log('Using ElevenLabs for voice synthesis');
+            console.log('✅ Using ElevenLabs cloned voice for synthesis');
             return await response.arrayBuffer();
           } else {
             console.warn('ElevenLabs synthesis failed, falling back to OpenAI');
@@ -342,63 +383,29 @@ export class VoiceCloning {
         throw new Error('Neither ElevenLabs nor OpenAI configured for voice synthesis');
       }
 
-      if (voiceProfile && voiceProfile.isCloned) {
-        const characteristics = voiceProfile.voiceCharacteristics;
+      const characteristics = voiceProfile?.voiceCharacteristics;
+      const voiceMap: Record<string, string> = {
+        'male-young': 'onyx',
+        'male-middle': 'onyx',
+        'male-elderly': 'onyx',
+        'female-young': 'nova',
+        'female-middle': 'alloy',
+        'female-elderly': 'shimmer',
+        'neutral': 'echo'
+      };
 
-        const voiceMap = {
-          'male-young': 'onyx',
-          'male-middle': 'onyx',
-          'male-elderly': 'onyx',
-          'female-young': 'nova',
-          'female-middle': 'alloy',
-          'female-elderly': 'shimmer',
-          'neutral': 'echo'
-        };
+      const voiceKey = characteristics ? `${characteristics.gender}-${characteristics.age}` : 'neutral';
+      const selectedVoice = voiceMap[voiceKey] || 'alloy';
 
-        const voiceKey = `${characteristics.gender}-${characteristics.age}`;
-        const selectedVoice = voiceMap[voiceKey as keyof typeof voiceMap] || 'alloy';
+      const openAiResponse = await openai.audio.speech.create({
+        model: 'tts-1-hd',
+        voice: selectedVoice as any,
+        input: text,
+        speed: characteristics?.speed || 1.0
+      });
 
-        console.log(`Using OpenAI voice ${selectedVoice} for ${characteristics.gender} ${characteristics.age} persona`);
+      return await openAiResponse.arrayBuffer();
 
-        const response = await openai.audio.speech.create({
-          model: 'tts-1-hd',
-          voice: selectedVoice as any,
-          input: text,
-          speed: characteristics.speed
-        });
-
-        return await response.arrayBuffer();
-      } else {
-        const voiceSettings = voiceProfile?.voiceCharacteristics || {
-          pitch: 1.0,
-          speed: 1.0,
-          tone: 'warm',
-          accent: 'neutral',
-          gender: 'neutral',
-          age: 'middle',
-          emotion: 'warm'
-        };
-
-        const voiceMap = {
-          warm: 'alloy',
-          gentle: 'echo',
-          energetic: 'fable',
-          mature: 'onyx',
-          youthful: 'nova',
-          professional: 'shimmer'
-        };
-
-        const selectedVoice = voiceMap[voiceSettings.tone as keyof typeof voiceMap] || 'alloy';
-
-        const response = await openai.audio.speech.create({
-          model: 'tts-1-hd',
-          voice: selectedVoice as any,
-          input: text,
-          speed: voiceSettings.speed
-        });
-
-        return await response.arrayBuffer();
-      }
     } catch (error) {
       console.error('Voice synthesis error:', error);
       throw error;
@@ -417,24 +424,7 @@ export class VoiceCloning {
         return false;
       }
 
-      console.log('Voice cloning initiated for persona:', personaId);
-      console.log('Audio samples:', voiceProfile.sampleAudioUrls.length);
-
       await this.trainVoiceModel(voiceProfile);
-
-      await supabase
-        .from('personas')
-        .update({
-          voice_model_id: voiceProfile.voiceModelId,
-          metadata: {
-            ...voiceProfile,
-            voice_cloned: true,
-            voice_clone_date: new Date().toISOString(),
-            voice_provider: 'elevenlabs'
-          }
-        })
-        .eq('id', personaId);
-
       return true;
     } catch (error) {
       console.error('Voice cloning error:', error);
