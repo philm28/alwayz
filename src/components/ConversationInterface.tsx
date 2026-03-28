@@ -688,10 +688,10 @@ export function ConversationInterface({
                 ))}
                 {persona?.voice_model_id?.startsWith('voice_') && (
                   <button
-                    onClick={() => window.location.href = `/train/${personaId}`}
+                    onClick={() => window.location.reload()}
                     className="mt-2 text-xs bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600"
                   >
-                    Re-upload Voice Samples
+                    Reload Page
                   </button>
                 )}
               </div>
