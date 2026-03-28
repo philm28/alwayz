@@ -265,12 +265,7 @@ export class VoiceCloning {
         return;
       }
 
-      const keyVerification = await this.verifyElevenLabsKey();
-      if (!keyVerification.valid) {
-        console.error('❌ ElevenLabs API key verification failed:', keyVerification.error);
-        throw new Error(`Invalid ElevenLabs API key: ${keyVerification.error}`);
-      }
-      console.log('✅ ElevenLabs API key verified. Subscription:', keyVerification.subscription);
+      console.log('✅ ElevenLabs API key configured, proceeding with voice cloning...');
 
       const audioFiles: Blob[] = [];
       for (const url of voiceProfile.sampleAudioUrls) {
@@ -312,8 +307,25 @@ export class VoiceCloning {
         const errorText = await response.text();
         console.error('❌ ElevenLabs voice creation failed:', response.status, errorText);
 
-        if (response.status === 401 && errorText.includes('missing_permissions')) {
-          throw new Error('ELEVENLABS_PERMISSIONS_ERROR');
+        if (response.status === 401) {
+          if (errorText.includes('missing_permissions')) {
+            // Parse the specific permission that's missing
+            let missingPermission = 'voice cloning';
+            try {
+              const errorData = JSON.parse(errorText);
+              if (errorData.detail?.message) {
+                missingPermission = errorData.detail.message;
+              }
+            } catch (e) {
+              // Keep default message
+            }
+            throw new Error(`ELEVENLABS_PERMISSIONS_ERROR: ${missingPermission}`);
+          }
+          throw new Error('ELEVENLABS_AUTH_ERROR: Invalid or expired API key');
+        }
+
+        if (response.status === 422) {
+          throw new Error('ELEVENLABS_VALIDATION_ERROR: Audio files may be too short or invalid format');
         }
 
         throw new Error(`ElevenLabs API error: ${response.status} - ${errorText}`);

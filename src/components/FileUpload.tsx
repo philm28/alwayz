@@ -357,13 +357,19 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
             stack: voiceError instanceof Error ? voiceError.stack : undefined
           });
 
-          if (voiceError instanceof Error && voiceError.message === 'ELEVENLABS_PERMISSIONS_ERROR') {
-            toast.error('ElevenLabs API key requires voice cloning permissions. Upgrade your plan or use OpenAI voices.', { duration: 6000 });
-          } else if (voiceError instanceof Error && voiceError.message.includes('Invalid ElevenLabs API key')) {
-            toast.error(`ElevenLabs error: ${voiceError.message}`, { duration: 6000 });
+          if (voiceError instanceof Error) {
+            if (voiceError.message.startsWith('ELEVENLABS_PERMISSIONS_ERROR')) {
+              toast.error('Your ElevenLabs API key lacks voice cloning permissions. Please upgrade your ElevenLabs plan or the app will use OpenAI voices.', { duration: 8000 });
+            } else if (voiceError.message.startsWith('ELEVENLABS_AUTH_ERROR')) {
+              toast.error('ElevenLabs authentication failed. Check your API key or use OpenAI voices.', { duration: 6000 });
+            } else if (voiceError.message.startsWith('ELEVENLABS_VALIDATION_ERROR')) {
+              toast.error('Audio files must be at least 1 minute total. Please upload longer samples.', { duration: 6000 });
+            } else {
+              const errorMsg = voiceError.message;
+              toast.error(`Voice cloning failed: ${errorMsg}. Will use OpenAI voices instead.`, { duration: 6000 });
+            }
           } else {
-            const errorMsg = voiceError instanceof Error ? voiceError.message : 'Unknown error';
-            toast.error(`Voice cloning failed: ${errorMsg}. Audio uploaded but will use OpenAI voices.`, { duration: 6000 });
+            toast.error('Voice cloning unavailable. Will use OpenAI voices instead.', { duration: 5000 });
           }
         }
       }
