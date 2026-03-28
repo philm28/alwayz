@@ -217,6 +217,30 @@ export class VoiceCloning {
     return Math.min(quality, 1.0);
   }
 
+  async verifyElevenLabsKey(): Promise<{ valid: boolean; error?: string; subscription?: any }> {
+    if (!ELEVENLABS_API_KEY) {
+      return { valid: false, error: 'API key not configured' };
+    }
+
+    try {
+      const response = await fetch(`${ELEVENLABS_API_URL}/user`, {
+        headers: {
+          'xi-api-key': ELEVENLABS_API_KEY
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        return { valid: false, error: `Status ${response.status}: ${errorText}` };
+      }
+
+      const userData = await response.json();
+      return { valid: true, subscription: userData.subscription };
+    } catch (error) {
+      return { valid: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
   private async trainVoiceModel(voiceProfile: VoiceProfile): Promise<void> {
     try {
       console.log('Training voice model for persona:', voiceProfile.personaId);
@@ -225,6 +249,13 @@ export class VoiceCloning {
         console.warn('ElevenLabs API key not configured, skipping voice cloning');
         return;
       }
+
+      const keyVerification = await this.verifyElevenLabsKey();
+      if (!keyVerification.valid) {
+        console.error('❌ ElevenLabs API key verification failed:', keyVerification.error);
+        throw new Error(`Invalid ElevenLabs API key: ${keyVerification.error}`);
+      }
+      console.log('✅ ElevenLabs API key verified. Subscription:', keyVerification.subscription);
 
       const audioFiles: Blob[] = [];
       for (const url of voiceProfile.sampleAudioUrls) {
@@ -238,7 +269,16 @@ export class VoiceCloning {
       formData.append('description', `Voice clone for persona ${voiceProfile.personaId}`);
 
       audioFiles.forEach((blob, index) => {
-        formData.append('files', blob, `sample${index}.mp3`);
+        const fileExtension = blob.type.includes('webm') ? 'webm' :
+                             blob.type.includes('wav') ? 'wav' :
+                             blob.type.includes('m4a') ? 'm4a' : 'mp3';
+        formData.append('files', blob, `sample${index}.${fileExtension}`);
+      });
+
+      console.log('📤 Sending voice cloning request to ElevenLabs:', {
+        endpoint: `${ELEVENLABS_API_URL}/voices/add`,
+        audioSamplesCount: audioFiles.length,
+        apiKeyLength: ELEVENLABS_API_KEY?.length
       });
 
       const response = await fetch(`${ELEVENLABS_API_URL}/voices/add`, {
