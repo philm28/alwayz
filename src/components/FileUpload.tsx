@@ -236,29 +236,6 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
 
       console.log('Database save successful:', dbData);
 
-      // Process voice cloning for audio files
-      if (file.type.startsWith('audio/')) {
-        try {
-          const { VoiceCloning } = await import('../lib/voiceCloning');
-          const voiceCloning = new VoiceCloning();
-
-          console.log('Processing voice cloning for audio file...');
-          const voiceProfile = await voiceCloning.createVoiceProfile(personaId, [file]);
-
-          if (voiceProfile.voiceModelId) {
-            await supabase
-              .from('personas')
-              .update({ voice_model_id: voiceProfile.voiceModelId })
-              .eq('id', personaId);
-
-            console.log('Voice model linked to persona:', voiceProfile.voiceModelId);
-            toast.success('Voice cloned successfully!');
-          }
-        } catch (voiceError) {
-          console.error('Voice cloning error:', voiceError);
-          toast('Audio uploaded, but voice cloning unavailable', { icon: '⚠️' });
-        }
-      }
 
       setTimeout(() => {
         uploadedFile.status = 'completed';
@@ -324,13 +301,43 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
     try {
       const uploadPromises = validFiles.map(uploadFile);
       const results = await Promise.all(uploadPromises);
-      
-      setUploadedFiles(prev => 
+
+      setUploadedFiles(prev =>
         prev.map(file => {
           const result = results.find(r => r.id === file.id);
           return result || file;
         })
       );
+
+      // Process voice cloning for all audio files in batch
+      const audioFiles = validFiles.filter(file => file.type.startsWith('audio/'));
+      if (audioFiles.length > 0) {
+        try {
+          const { VoiceCloning } = await import('../lib/voiceCloning');
+          const voiceCloning = new VoiceCloning();
+
+          console.log(`Processing voice cloning with ${audioFiles.length} audio samples...`);
+          const voiceProfile = await voiceCloning.createVoiceProfile(personaId, audioFiles);
+
+          if (voiceProfile.voiceModelId) {
+            await supabase
+              .from('personas')
+              .update({ voice_model_id: voiceProfile.voiceModelId })
+              .eq('id', personaId);
+
+            console.log('Voice model linked to persona:', voiceProfile.voiceModelId);
+
+            if (audioFiles.length >= 3) {
+              toast.success(`Voice cloned successfully with ${audioFiles.length} samples!`);
+            } else {
+              toast.success(`Voice samples uploaded! Upload ${3 - audioFiles.length} more for full voice cloning.`);
+            }
+          }
+        } catch (voiceError) {
+          console.error('Voice cloning error:', voiceError);
+          toast('Audio uploaded, but voice cloning unavailable', { icon: '⚠️' });
+        }
+      }
 
       onUploadComplete?.(results.filter(r => r.status === 'completed'));
     } catch (error) {
