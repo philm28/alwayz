@@ -518,7 +518,17 @@ export class VoiceCloning {
         console.log('✅ Voice ID fixed successfully!');
         return true;
       } else {
-        console.log('❌ No matching voice found. You may need to re-upload voice samples.');
+        console.log('❌ No matching voice found. Clearing invalid voice ID...');
+
+        const { error: clearError } = await supabase
+          .from('personas')
+          .update({ voice_model_id: null })
+          .eq('id', personaId);
+
+        if (!clearError) {
+          console.log('✅ Invalid voice ID cleared. Please re-upload voice samples.');
+        }
+
         return false;
       }
     } catch (error) {

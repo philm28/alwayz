@@ -686,6 +686,14 @@ export function ConversationInterface({
                 {voiceDebugLog.map((log, i) => (
                   <div key={i} className="text-yellow-700">{log}</div>
                 ))}
+                {persona?.voice_model_id?.startsWith('voice_') && (
+                  <button
+                    onClick={() => window.location.href = `/train/${personaId}`}
+                    className="mt-2 text-xs bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600"
+                  >
+                    Re-upload Voice Samples
+                  </button>
+                )}
               </div>
             )}
             <button
