@@ -250,29 +250,32 @@ export class VoiceCloning {
       });
 
       if (!response.ok) {
-        throw new Error(`ElevenLabs API error: ${response.statusText}`);
+        const errorText = await response.text();
+        console.error('❌ ElevenLabs voice creation failed:', response.status, errorText);
+        throw new Error(`ElevenLabs API error: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
       voiceProfile.voiceModelId = data.voice_id;
 
-      console.log('Voice model training completed with ID:', data.voice_id);
+      console.log('✅ Voice model training completed with ID:', data.voice_id);
 
-      // ✅ FIX: Save the real ElevenLabs voice_id directly to Supabase
       const { error: updateError } = await supabase
         .from('personas')
         .update({ voice_model_id: data.voice_id })
         .eq('id', voiceProfile.personaId);
 
       if (updateError) {
-        console.error('Failed to save voice_id to Supabase:', updateError);
+        console.error('❌ Failed to save voice_id to Supabase:', updateError);
+        throw updateError;
       } else {
         console.log('✅ Voice ID saved to Supabase successfully:', data.voice_id);
       }
 
     } catch (error) {
-      console.error('Voice model training failed:', error);
+      console.error('❌ Voice model training failed:', error);
       captureException(error as Error, { personaId: voiceProfile.personaId });
+      throw error;
     }
   }
 
@@ -457,7 +460,8 @@ export class VoiceCloning {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch voices');
+        const errorText = await response.text();
+        throw new Error(`Failed to fetch voices: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
@@ -465,6 +469,61 @@ export class VoiceCloning {
     } catch (error) {
       console.error('Error fetching voices:', error);
       return [];
+    }
+  }
+
+  async fixInvalidVoiceId(personaId: string): Promise<boolean> {
+    try {
+      console.log('🔧 Attempting to fix invalid voice ID for persona:', personaId);
+
+      const { data: persona, error: fetchError } = await supabase
+        .from('personas')
+        .select('voice_model_id, metadata')
+        .eq('id', personaId)
+        .single();
+
+      if (fetchError || !persona) {
+        throw new Error('Persona not found');
+      }
+
+      const currentVoiceId = persona.voice_model_id;
+      console.log('Current voice ID:', currentVoiceId);
+
+      if (!currentVoiceId || !currentVoiceId.startsWith('voice_')) {
+        console.log('Voice ID is already valid or not set');
+        return false;
+      }
+
+      const availableVoices = await this.listAvailableVoices();
+      console.log('📋 Available ElevenLabs voices:', availableVoices.length);
+
+      const matchingVoice = availableVoices.find(v =>
+        v.name === `Persona_${personaId}` ||
+        v.labels?.persona_id === personaId
+      );
+
+      if (matchingVoice) {
+        console.log('✅ Found matching voice in ElevenLabs:', matchingVoice.voice_id);
+
+        const { error: updateError } = await supabase
+          .from('personas')
+          .update({ voice_model_id: matchingVoice.voice_id })
+          .eq('id', personaId);
+
+        if (updateError) {
+          throw updateError;
+        }
+
+        this.voiceProfiles.delete(personaId);
+        console.log('✅ Voice ID fixed successfully!');
+        return true;
+      } else {
+        console.log('❌ No matching voice found. You may need to re-upload voice samples.');
+        return false;
+      }
+    } catch (error) {
+      console.error('Error fixing voice ID:', error);
+      return false;
     }
   }
 

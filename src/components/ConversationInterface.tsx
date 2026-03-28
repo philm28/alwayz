@@ -224,10 +224,29 @@ export function ConversationInterface({
     };
 
     try {
-      const voiceModelId = persona?.voice_model_id;
+      let voiceModelId = persona?.voice_model_id;
 
       log(`🔍 Voice Model ID: ${voiceModelId || 'NOT SET'}`);
       log(`🔑 ElevenLabs API Key: ${import.meta.env.VITE_ELEVENLABS_API_KEY ? 'CONFIGURED' : 'MISSING'}`);
+
+      if (voiceModelId?.startsWith('voice_')) {
+        log('⚠️ Invalid voice ID detected, attempting to fix...');
+        const { voiceCloning } = await import('../lib/voiceCloning');
+        const fixed = await voiceCloning.fixInvalidVoiceId(personaId);
+
+        if (fixed) {
+          const { data: updatedPersona } = await supabase
+            .from('personas')
+            .select('voice_model_id')
+            .eq('id', personaId)
+            .single();
+          voiceModelId = updatedPersona?.voice_model_id || voiceModelId;
+          log(`✅ Fixed! New ID: ${voiceModelId}`);
+        } else {
+          log('❌ Could not fix. Please re-upload voice samples.');
+          voiceModelId = undefined;
+        }
+      }
 
       if (voiceModelId && import.meta.env.VITE_ELEVENLABS_API_KEY) {
         log('✅ Using ElevenLabs cloned voice');
