@@ -351,12 +351,19 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
             }
           }
         } catch (voiceError) {
-          console.error('Voice cloning error:', voiceError);
+          console.error('❌ Voice cloning error details:', {
+            error: voiceError,
+            message: voiceError instanceof Error ? voiceError.message : 'Unknown error',
+            stack: voiceError instanceof Error ? voiceError.stack : undefined
+          });
 
           if (voiceError instanceof Error && voiceError.message === 'ELEVENLABS_PERMISSIONS_ERROR') {
             toast.error('ElevenLabs API key requires voice cloning permissions. Upgrade your plan or use OpenAI voices.', { duration: 6000 });
+          } else if (voiceError instanceof Error && voiceError.message.includes('Invalid ElevenLabs API key')) {
+            toast.error(`ElevenLabs error: ${voiceError.message}`, { duration: 6000 });
           } else {
-            toast('Audio uploaded, but voice cloning unavailable. Will use OpenAI voices instead.', { icon: '⚠️', duration: 5000 });
+            const errorMsg = voiceError instanceof Error ? voiceError.message : 'Unknown error';
+            toast.error(`Voice cloning failed: ${errorMsg}. Audio uploaded but will use OpenAI voices.`, { duration: 6000 });
           }
         }
       }

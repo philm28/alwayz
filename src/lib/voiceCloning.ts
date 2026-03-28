@@ -46,18 +46,33 @@ export class VoiceCloning {
 
       for (let i = 0; i < audioSamples.length; i++) {
         const sample = audioSamples[i];
-        const samplePath = `voice-samples/${personaId}/sample-${i}-${Date.now()}.mp3`;
+        const fileExtension = sample.name.split('.').pop() || 'mp3';
+        const samplePath = `voice-samples/${personaId}/sample-${i}-${Date.now()}.${fileExtension}`;
+
+        console.log(`📤 Uploading voice sample ${i+1}/${audioSamples.length}:`, {
+          name: sample.name,
+          type: sample.type,
+          size: sample.size,
+          path: samplePath
+        });
 
         const { data, error } = await supabase.storage
           .from('persona-content')
-          .upload(samplePath, sample);
+          .upload(samplePath, sample, {
+            contentType: sample.type || 'audio/mpeg',
+            upsert: false
+          });
 
-        if (error) throw error;
+        if (error) {
+          console.error('❌ Upload failed:', error);
+          throw error;
+        }
 
         const { data: { publicUrl } } = supabase.storage
           .from('persona-content')
           .getPublicUrl(samplePath);
 
+        console.log('✅ Sample uploaded successfully:', publicUrl);
         sampleUrls.push(publicUrl);
       }
 
@@ -259,8 +274,10 @@ export class VoiceCloning {
 
       const audioFiles: Blob[] = [];
       for (const url of voiceProfile.sampleAudioUrls) {
+        console.log('📥 Fetching audio sample from:', url);
         const response = await fetch(url);
         const blob = await response.blob();
+        console.log('📥 Blob received - type:', blob.type, 'size:', blob.size, 'bytes');
         audioFiles.push(blob);
       }
 
@@ -271,7 +288,9 @@ export class VoiceCloning {
       audioFiles.forEach((blob, index) => {
         const fileExtension = blob.type.includes('webm') ? 'webm' :
                              blob.type.includes('wav') ? 'wav' :
-                             blob.type.includes('m4a') ? 'm4a' : 'mp3';
+                             blob.type.includes('m4a') ? 'm4a' :
+                             blob.type.includes('mpeg') ? 'mp3' : 'mp3';
+        console.log(`📎 Appending file ${index}: sample${index}.${fileExtension} (${blob.type})`);
         formData.append('files', blob, `sample${index}.${fileExtension}`);
       });
 
