@@ -294,12 +294,19 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
       const uploadPromises = validFiles.map(uploadFile);
       const results = await Promise.all(uploadPromises);
 
-      setUploadedFiles(prev =>
-        prev.map(file => {
+      console.log('Upload results:', results.map(r => ({ id: r.id, name: r.name, status: r.status })));
+
+      setUploadedFiles(prev => {
+        const updated = prev.map(file => {
           const result = results.find(r => r.id === file.id);
+          if (result) {
+            console.log(`Updating file ${file.name} to status: ${result.status}`);
+          }
           return result || file;
-        })
-      );
+        });
+        console.log('Updated files:', updated.map(f => ({ name: f.name, status: f.status })));
+        return updated;
+      });
 
       // Process voice cloning for all audio files in batch
       const audioFiles = validFiles.filter(file => file.type.startsWith('audio/'));
