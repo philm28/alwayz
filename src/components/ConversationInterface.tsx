@@ -36,6 +36,7 @@ export function ConversationInterface({
   const [isTyping, setIsTyping] = useState(false);
   const [autoPlayVoice, setAutoPlayVoice] = useState(true);
   const [showVoiceSettings, setShowVoiceSettings] = useState(false);
+  const [voiceDebugLog, setVoiceDebugLog] = useState<string[]>([]);
 
   const { user } = useAuth();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -217,10 +218,19 @@ export function ConversationInterface({
   };
 
   const speakWithClonedVoice = async (text: string) => {
+    const log = (msg: string) => {
+      console.log(msg);
+      setVoiceDebugLog(prev => [...prev.slice(-4), msg]);
+    };
+
     try {
       const voiceModelId = persona?.voice_model_id;
 
+      log(`🔍 Voice Model ID: ${voiceModelId || 'NOT SET'}`);
+      log(`🔑 ElevenLabs API Key: ${import.meta.env.VITE_ELEVENLABS_API_KEY ? 'CONFIGURED' : 'MISSING'}`);
+
       if (voiceModelId && import.meta.env.VITE_ELEVENLABS_API_KEY) {
+        log('✅ Using ElevenLabs cloned voice');
         const { VoiceCloning } = await import('../lib/voiceCloning');
         const voiceCloning = new VoiceCloning();
         const audioBlob = await voiceCloning.synthesizeSpeech(text, voiceModelId);
@@ -231,9 +241,11 @@ export function ConversationInterface({
 
         audio.onended = () => URL.revokeObjectURL(audioUrl);
       } else if (ttsSupported) {
+        log('⚠️ Falling back to browser TTS');
         speak(text);
       }
     } catch (error) {
+      log(`❌ Error: ${error}`);
       console.error('Voice synthesis error:', error);
       if (ttsSupported) {
         speak(text);
@@ -649,6 +661,14 @@ export function ConversationInterface({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {voiceDebugLog.length > 0 && (
+              <div className="text-xs bg-yellow-50 border border-yellow-200 rounded px-2 py-1 max-w-md">
+                <div className="font-semibold text-yellow-800 mb-1">Voice Debug:</div>
+                {voiceDebugLog.map((log, i) => (
+                  <div key={i} className="text-yellow-700">{log}</div>
+                ))}
+              </div>
+            )}
             <button
               onClick={() => setAutoPlayVoice(!autoPlayVoice)}
               className={`p-2 rounded-lg transition-all ${
