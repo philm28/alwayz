@@ -119,6 +119,11 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
 
       console.log('Uploading file:', file.name, 'to path:', filePath);
 
+      // Update progress to 10% when starting upload
+      setUploadedFiles(prev => prev.map(f =>
+        f.id === fileId ? { ...f, progress: 10 } : f
+      ));
+
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('persona-content')
         .upload(filePath, file, {
@@ -140,6 +145,11 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
       uploadedFile.url = publicUrl;
       uploadedFile.status = 'processing';
       uploadedFile.progress = 50;
+
+      // Update progress to 50% after upload completes
+      setUploadedFiles(prev => prev.map(f =>
+        f.id === fileId ? { ...f, progress: 50, status: 'processing', url: publicUrl } : f
+      ));
 
       // Generate text content for all files
       let extractedText = '';
@@ -238,6 +248,11 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
 
       uploadedFile.status = 'completed';
       uploadedFile.progress = 100;
+
+      // Update progress to 100% when completed
+      setUploadedFiles(prev => prev.map(f =>
+        f.id === fileId ? { ...f, progress: 100, status: 'completed' } : f
+      ));
 
       return uploadedFile;
     } catch (error) {
