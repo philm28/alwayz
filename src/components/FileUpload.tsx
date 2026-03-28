@@ -546,8 +546,9 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
                     <div>
                       <p className="font-medium text-gray-900">{file.name}</p>
                       <p className="text-sm text-gray-500">{formatFileSize(file.size)}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">Status: {file.status} | Progress: {file.progress}%</p>
                       {file.error && (
-                        <p className="text-sm text-red-600 mt-1">{file.error}</p>
+                        <p className="text-sm text-red-600 mt-1 font-semibold">{file.error}</p>
                       )}
                     </div>
                   </div>
