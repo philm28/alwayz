@@ -107,18 +107,13 @@ export class ContextualAIEngine {
       const emotion = this.analyzeResponseEmotion(response, conversationContext.emotionalTone);
       const confidence = this.calculateResponseConfidence(trimmedSpeech, response);
 
-      // Generate voice if OpenAI is available
+      // Generate voice using cloned voice or fallback to OpenAI
       let audioBuffer: ArrayBuffer | undefined;
       try {
-        if (openai) {
-          const voiceResponse = await openai.audio.speech.create({
-            model: 'tts-1-hd',
-            voice: this.getPersonaVoice(emotion),
-            input: response,
-            speed: this.adjustSpeechSpeed(conversationContext.speakingPace)
-          });
-          audioBuffer = await voiceResponse.arrayBuffer();
-        }
+        const { voiceCloning } = await import('./voiceCloning');
+        console.log('🎤 Synthesizing voice for persona:', this.personaId);
+        audioBuffer = await voiceCloning.synthesizeVoice(this.personaId, response, emotion);
+        console.log('✅ Voice synthesized successfully using cloned voice or OpenAI');
       } catch (voiceError) {
         console.warn('Voice generation failed, continuing without audio:', voiceError);
       }
