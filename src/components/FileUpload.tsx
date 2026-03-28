@@ -89,8 +89,8 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
     }
   };
 
-  const uploadFile = async (file: File): Promise<UploadedFile> => {
-    const fileId = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+  const uploadFile = async (file: File, existingFileId?: string): Promise<UploadedFile> => {
+    const fileId = existingFileId || `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
     const filePath = fileId;
 
     const uploadedFile: UploadedFile = {
@@ -308,7 +308,7 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
     try {
       const uploadPromises = validFiles.map(async (file, index) => {
         const uploadedFile = newFiles[index];
-        const result = await uploadFile(file);
+        const result = await uploadFile(file, uploadedFile.id);
 
         // Update the UI immediately after each upload completes
         setUploadedFiles(prev => prev.map(f =>
@@ -324,13 +324,17 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
 
       // Process voice cloning for all audio files in batch
       const audioFiles = validFiles.filter(file => file.type.startsWith('audio/'));
+      console.log('Audio files found:', audioFiles.length, 'Total files:', validFiles.length);
+      console.log('File types:', validFiles.map(f => f.type));
+
       if (audioFiles.length > 0) {
         try {
           const { VoiceCloning } = await import('../lib/voiceCloning');
           const voiceCloning = new VoiceCloning();
 
-          console.log(`Processing voice cloning with ${audioFiles.length} audio samples...`);
+          console.log(`✅ STARTING voice cloning with ${audioFiles.length} audio samples for persona ${personaId}`);
           const voiceProfile = await voiceCloning.createVoiceProfile(personaId, audioFiles);
+          console.log('✅ Voice profile created:', voiceProfile);
 
           if (voiceProfile.voiceModelId) {
             await supabase
