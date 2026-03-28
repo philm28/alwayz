@@ -350,6 +350,7 @@ export class VoiceCloning {
 
       if (ELEVENLABS_API_KEY && voiceProfile && voiceProfile.isCloned) {
         try {
+          console.log('🎤 Attempting ElevenLabs synthesis with voice ID:', voiceProfile.voiceModelId);
           const response = await fetch(`${ELEVENLABS_API_URL}/text-to-speech/${voiceProfile.voiceModelId}`, {
             method: 'POST',
             headers: {
@@ -372,11 +373,19 @@ export class VoiceCloning {
             console.log('✅ Using ElevenLabs cloned voice for synthesis');
             return await response.arrayBuffer();
           } else {
-            console.warn('ElevenLabs synthesis failed, falling back to OpenAI');
+            const errorText = await response.text();
+            console.warn('❌ ElevenLabs synthesis failed:', response.status, errorText, '- falling back to OpenAI');
           }
         } catch (error) {
-          console.warn('ElevenLabs error, falling back to OpenAI:', error);
+          console.warn('❌ ElevenLabs error, falling back to OpenAI:', error);
         }
+      } else {
+        console.log('ℹ️ Skipping ElevenLabs:', {
+          hasKey: !!ELEVENLABS_API_KEY,
+          hasProfile: !!voiceProfile,
+          isCloned: voiceProfile?.isCloned,
+          voiceModelId: voiceProfile?.voiceModelId
+        });
       }
 
       if (!openai) {
