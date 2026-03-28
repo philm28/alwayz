@@ -252,6 +252,11 @@ export class VoiceCloning {
       if (!response.ok) {
         const errorText = await response.text();
         console.error('❌ ElevenLabs voice creation failed:', response.status, errorText);
+
+        if (response.status === 401 && errorText.includes('missing_permissions')) {
+          throw new Error('ELEVENLABS_PERMISSIONS_ERROR');
+        }
+
         throw new Error(`ElevenLabs API error: ${response.status} - ${errorText}`);
       }
 

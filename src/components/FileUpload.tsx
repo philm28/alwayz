@@ -352,7 +352,12 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
           }
         } catch (voiceError) {
           console.error('Voice cloning error:', voiceError);
-          toast('Audio uploaded, but voice cloning unavailable', { icon: '⚠️' });
+
+          if (voiceError instanceof Error && voiceError.message === 'ELEVENLABS_PERMISSIONS_ERROR') {
+            toast.error('ElevenLabs API key requires voice cloning permissions. Upgrade your plan or use OpenAI voices.', { duration: 6000 });
+          } else {
+            toast('Audio uploaded, but voice cloning unavailable. Will use OpenAI voices instead.', { icon: '⚠️', duration: 5000 });
+          }
         }
       }
 
