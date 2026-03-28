@@ -301,7 +301,8 @@ export class VoiceCloning {
       });
 
       if (!response.ok) {
-        throw new Error(`ElevenLabs API error: ${response.statusText}`);
+        const errorText = await response.text();
+        throw new Error(`ElevenLabs API error: ${response.status} - ${errorText}`);
       }
 
       return await response.blob();
