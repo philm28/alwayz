@@ -236,16 +236,8 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
 
       console.log('Database save successful:', dbData);
 
-
-      setTimeout(() => {
-        uploadedFile.status = 'completed';
-        uploadedFile.progress = 100;
-        setUploadedFiles(prev =>
-          prev.map(f => f.id === fileId ? uploadedFile : f)
-        );
-
-        toast.success(`File "${file.name}" uploaded successfully!`);
-      }, 2000);
+      uploadedFile.status = 'completed';
+      uploadedFile.progress = 100;
 
       return uploadedFile;
     } catch (error) {
