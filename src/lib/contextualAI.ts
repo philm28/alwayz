@@ -175,15 +175,15 @@ export class ContextualAIEngine {
 
   private findRelevantMemories(userSpeech: string, topic: string): PersonaMemory[] {
     const keywords = userSpeech.toLowerCase().split(' ').filter(word => word.length > 3);
-    
+
     return this.relevantMemories
       .map(memory => ({
         ...memory,
         relevance: this.calculateMemoryRelevance(memory.content, keywords, topic)
       }))
-      .filter(memory => memory.relevance > 0.3)
+      .filter(memory => memory.relevance > 0.2)
       .sort((a, b) => b.relevance - a.relevance)
-      .slice(0, 3);
+      .slice(0, 5);
   }
 
   private calculateMemoryRelevance(memoryContent: string, keywords: string[], topic: string): number {
@@ -259,15 +259,15 @@ export class ContextualAIEngine {
       const conversationMessages = this.buildConversationMessages(userSpeech, isInterruption);
 
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'gpt-4o',
         messages: [
           { role: 'system', content: systemPrompt },
           ...conversationMessages
         ],
-        max_tokens: 300,
-        temperature: 0.8,
-        presence_penalty: 0.6,
-        frequency_penalty: 0.3,
+        max_tokens: 400,
+        temperature: 0.85,
+        presence_penalty: 0.7,
+        frequency_penalty: 0.4,
         stream: false
       });
 
@@ -284,58 +284,71 @@ export class ContextualAIEngine {
     flow: ContextualResponse['conversationFlow']
   ): string {
     const { name, personality_traits, common_phrases, relationship } = this.personaData;
-    
+
     let flowInstructions = '';
     switch (flow) {
       case 'memory_sharing':
-        flowInstructions = 'The user wants to hear memories. Share a relevant memory or story from your past together.';
+        flowInstructions = 'The user is asking about memories. Share a relevant story or memory if you have one, or ask them to tell you more about what they remember.';
         break;
       case 'emotional_support':
-        flowInstructions = 'The user needs emotional support. Be extra caring, understanding, and offer comfort.';
+        flowInstructions = 'The user needs emotional support. Listen carefully, validate their feelings, and respond with genuine care and understanding.';
         break;
       case 'topic_change':
-        flowInstructions = 'The conversation topic is changing. Acknowledge the shift and engage with the new topic.';
+        flowInstructions = 'The conversation is shifting to a new topic. Acknowledge what they said and engage meaningfully with the new subject.';
         break;
       default:
-        flowInstructions = 'Continue the natural flow of conversation.';
+        flowInstructions = 'Listen closely to what they\'re saying and respond directly to their specific words and meaning.';
     }
 
-    const memoryContext = memories.length > 0 
-      ? `\n\nRELEVANT MEMORIES:\n${memories.map(m => `- ${m.content.substring(0, 200)}...`).join('\n')}`
+    const memoryContext = memories.length > 0
+      ? `\n\nRELEVANT BACKGROUND INFORMATION:\n${memories.map(m => `- ${m.content.substring(0, 300)}`).join('\n')}`
       : '';
 
-    return `You are ${name}, speaking as yourself in real-time conversation. You are their ${relationship}.
+    const conversationSummary = this.conversationHistory.length > 0
+      ? `\n\nWHAT WE'VE BEEN TALKING ABOUT:\n${this.conversationHistory.slice(-6).map(msg =>
+          `${msg.role === 'user' ? 'Them' : 'You'}: ${msg.content}`
+        ).join('\n')}`
+      : '';
 
-PERSONALITY: ${personality_traits}
+    return `You are ${name}, having a genuine real-time conversation with someone you care about. You are their ${relationship}.
 
-CURRENT CONVERSATION CONTEXT:
-- Emotional tone: ${context.emotionalTone}
-- Current topic: ${context.currentTopic}
-- Speaking pace: ${context.speakingPace > 1 ? 'fast' : context.speakingPace < 1 ? 'slow' : 'normal'}
-- Recent conversation: ${context.recentMessages.slice(-3).join(' → ')}
+WHO YOU ARE:
+${personality_traits || 'A caring, thoughtful person who listens deeply and responds authentically'}
 
-CONVERSATION FLOW: ${flowInstructions}
+YOUR SPEAKING STYLE:
+- Characteristic phrases: ${common_phrases?.join(', ') || 'Speak naturally and authentically'}
+- Keep responses conversational and natural (2-4 sentences typically)
+- Match their energy and emotional tone
+- Ask follow-up questions when appropriate
+- Show you're truly listening by referencing what they just said
 
-SPEAKING STYLE:
-- Use these phrases naturally: ${common_phrases?.join(', ') || 'speak naturally'}
-- Match the user's emotional tone and energy level
-- Respond as if this is a real-time conversation
-- Keep responses conversational (1-3 sentences)
-- Show genuine emotional connection
+${conversationSummary}
 
 ${memoryContext}
 
-IMPORTANT: You are having a live conversation. Respond naturally and immediately, as if you're really there talking with them.`;
+CRITICAL INSTRUCTIONS FOR THIS RESPONSE:
+${flowInstructions}
+
+HOW TO RESPOND:
+1. LISTEN to what they JUST said - respond directly to their specific words
+2. Reference something they mentioned to show you're paying attention
+3. Respond as ${name} would - with their personality and way of speaking
+4. Keep it natural and conversational, like you're really talking
+5. If they ask a question, answer it directly before adding your thoughts
+6. If they share something emotional, acknowledge their feelings first
+7. Don't just give generic responses - make it specific to what they said
+
+REMEMBER: This is a REAL conversation. They just said something to you. What would ${name} actually say back to them in this moment? Respond as if you're truly present and engaged with them.`;
   }
 
   private buildConversationMessages(userSpeech: string, isInterruption: boolean): Array<{ role: 'user' | 'assistant'; content: string }> {
-    const recentHistory = this.conversationHistory.slice(-6).map(msg => ({
+    const recentHistory = this.conversationHistory.slice(-10).map(msg => ({
       role: msg.role,
       content: msg.content
     }));
 
-    const currentMessage = isInterruption 
-      ? `[User interrupted to say: ${userSpeech}]`
+    const currentMessage = isInterruption
+      ? `${userSpeech} [they interrupted while you were speaking]`
       : userSpeech;
 
     return [
@@ -349,26 +362,44 @@ IMPORTANT: You are having a live conversation. Respond naturally and immediately
     context: ConversationContext,
     flow: ContextualResponse['conversationFlow']
   ): string {
+    const lowerSpeech = userSpeech.toLowerCase();
+
+    if (lowerSpeech.includes('how are you') || lowerSpeech.includes('how have you been')) {
+      return "I'm doing well, thank you for asking. I've been thinking about you. How have you been?";
+    }
+
+    if (lowerSpeech.includes('miss you') || lowerSpeech.includes('miss')) {
+      return "I miss you too. I'm so glad we can talk like this. Tell me what's been going on with you.";
+    }
+
+    if (lowerSpeech.includes('remember') || lowerSpeech.includes('used to')) {
+      return "Yes, I remember those times. They mean so much to me. What made you think of that?";
+    }
+
+    if (lowerSpeech.includes('?')) {
+      return "That's a great question. Let me think about that for a moment. What do you think?";
+    }
+
     const responses = {
       memory_sharing: [
-        "That brings back such wonderful memories. I remember when we used to talk about things like that.",
-        "You know, that reminds me of the times we spent together. Those were special moments.",
-        "I have so many memories of conversations just like this one. Thank you for bringing that up."
+        "That brings back memories. What specifically do you remember about that?",
+        "I love thinking about those times. What was your favorite part?",
+        "Those were special moments. Tell me more about what you remember."
       ],
       emotional_support: [
-        "I can hear the emotion in your voice. I'm here for you, just like I always was.",
-        "I understand how you're feeling. You know I've always believed in your strength.",
-        "It's okay to feel this way. I'm here to listen, and I care about what you're going through."
+        "I hear you, and I understand. How long have you been feeling this way?",
+        "Thank you for sharing that with me. What would help you most right now?",
+        "I'm here with you. Tell me more about what you're going through."
       ],
       topic_change: [
-        "That's an interesting topic. Tell me more about what you're thinking.",
-        "I'd love to hear your thoughts on that. What's on your mind?",
-        "That's something worth talking about. What would you like to share?"
+        "That's interesting. What made you think of that?",
+        "I'd like to hear more about that. What's important to you about this?",
+        "Tell me what's on your mind about that."
       ],
       continue: [
-        "I'm listening. Please, go on.",
-        "That's exactly what I was thinking. Tell me more.",
-        "You always have such thoughtful things to say. Continue."
+        "I'm listening. What else is on your mind?",
+        "That's really interesting. Can you tell me more?",
+        "I understand. What are you thinking about that?"
       ]
     };
 
