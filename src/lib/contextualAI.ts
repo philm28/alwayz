@@ -42,23 +42,44 @@ export class ContextualAIEngine {
 
   private async loadRelevantMemories(): Promise<void> {
     try {
+      // Load content from persona_content table
       const { data: content } = await supabase
         .from('persona_content')
-        .select('content_text, metadata')
+        .select('content_text, metadata, content_type')
         .eq('persona_id', this.personaId)
         .eq('processing_status', 'completed')
-        .limit(20);
+        .limit(50);
 
-      if (content) {
-        this.relevantMemories = content
-          .filter(item => item.content_text && item.content_text.length > 50)
-          .map(item => ({
-            content: item.content_text,
+      // Also load from persona_memories table
+      const { data: memories } = await supabase
+        .from('persona_memories')
+        .select('memory_text, memory_type, importance, metadata')
+        .eq('persona_id', this.personaId)
+        .order('importance', { ascending: false })
+        .limit(30);
+
+      const contentMemories = content
+        ? content
+            .filter(item => item.content_text && item.content_text.length > 20)
+            .map(item => ({
+              content: item.content_text,
+              emotion: item.metadata?.emotion || 'neutral',
+              timestamp: item.metadata?.upload_date || new Date().toISOString(),
+              relevance: 1.0
+            }))
+        : [];
+
+      const extractedMemories = memories
+        ? memories.map(item => ({
+            content: item.memory_text,
             emotion: item.metadata?.emotion || 'neutral',
-            timestamp: item.metadata?.upload_date || new Date().toISOString(),
-            relevance: 1.0
-          }));
-      }
+            timestamp: item.metadata?.created_at || new Date().toISOString(),
+            relevance: item.importance || 0.5
+          }))
+        : [];
+
+      this.relevantMemories = [...contentMemories, ...extractedMemories];
+      console.log(`Loaded ${this.relevantMemories.length} memories for persona ${this.personaId}`);
     } catch (error) {
       console.error('Error loading persona memories:', error);
     }

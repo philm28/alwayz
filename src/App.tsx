@@ -505,31 +505,57 @@ function App() {
     );
   };
 
-  const CreatePersonaFlow = () => (
-    <div className="min-h-screen bg-gray-50">
-      <Navigation />
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="mb-8">
-          <button
-            onClick={() => setCurrentView('dashboard')}
-            className="text-gray-600 hover:text-gray-900 flex items-center gap-2 mb-4"
-          >
-            ← Back to Dashboard
-          </button>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Create New Persona</h1>
-          <p className="text-gray-600">Build an AI persona that preserves their memory forever</p>
-        </div>
+  const CreatePersonaFlow = () => {
+    const [completedPersonaId, setCompletedPersonaId] = useState<string | null>(null);
 
-        <PersonaTraining
-          onComplete={() => {
-            // Don't auto-redirect - let user stay on training page
-            // They can manually navigate back when ready
-            console.log('Training completed - persona is now active');
-          }}
-        />
+    const handleTrainingComplete = async () => {
+      console.log('Training completed - preparing to start conversation');
+
+      // Find the newly created persona
+      const newPersonas = personas.filter(p => p.status === 'active');
+      if (newPersonas.length > 0) {
+        const newestPersona = newPersonas[newPersonas.length - 1];
+        setCompletedPersonaId(newestPersona.id);
+      }
+    };
+
+    const startConversation = async () => {
+      if (completedPersonaId) {
+        const persona = personas.find(p => p.id === completedPersonaId);
+        if (persona) {
+          setSelectedPersona(persona);
+          setConversationType('voice_call');
+          setCurrentView('conversation');
+          toast.success(`Connected to ${persona.name}!`);
+        }
+      } else {
+        setCurrentView('dashboard');
+        toast.success('Persona created! Select it from your dashboard to start talking.');
+      }
+    };
+
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navigation />
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+          <div className="mb-8">
+            <button
+              onClick={() => setCurrentView('dashboard')}
+              className="text-gray-600 hover:text-gray-900 flex items-center gap-2 mb-4"
+            >
+              ← Back to Dashboard
+            </button>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Create New Persona</h1>
+            <p className="text-gray-600">Build an AI persona that preserves their memory forever</p>
+          </div>
+
+          <PersonaTraining
+            onComplete={handleTrainingComplete}
+          />
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const ConversationView = () => {
     if (!selectedPersona) {

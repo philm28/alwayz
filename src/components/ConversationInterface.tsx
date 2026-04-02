@@ -4,6 +4,8 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
+import { FaceTimeInterface } from './FaceTimeInterface';
+import { RealTimeConversation } from './RealTimeConversation';
 import toast from 'react-hot-toast';
 import Webcam from 'react-webcam';
 
@@ -660,6 +662,29 @@ export function ConversationInterface({
   }
 
   // Chat interface
+  // Use FaceTime-style interface for voice calls
+  if (conversationType === 'voice_call') {
+    return (
+      <FaceTimeInterface
+        personaId={personaId}
+        personaName={personaName}
+        personaAvatar={persona?.avatar_url}
+        onEndCall={() => onEndCall?.()}
+      />
+    );
+  }
+
+  // Use advanced real-time conversation for video calls
+  if (conversationType === 'video_call') {
+    return (
+      <RealTimeConversation
+        personaId={personaId}
+        personaName={personaName}
+        onEndConversation={() => onEndCall?.()}
+      />
+    );
+  }
+
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col h-[calc(100vh-12rem)]">
       {/* Header */}

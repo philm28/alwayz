@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Brain, CheckCircle, Clock, AlertCircle, Zap, User, Heart, Upload, Share2 } from 'lucide-react';
+import { Brain, CheckCircle, Clock, AlertCircle, Zap, User, Heart, Upload, Share2, MessageCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -94,11 +94,11 @@ export function PersonaTraining({ personaId: initialPersonaId, onTrainingComplet
       setIsTraining(false);
       setTrainingCompleted(true);
       updatePersonaStatus('active', 100);
-      // Delay callback to ensure database update completes
+      // Delay callback to ensure database update completes and show success state
       setTimeout(() => {
         onTrainingComplete?.();
         onComplete?.();
-      }, 1000);
+      }, 2000);
     }
   }, [trainingSteps, isTraining, onTrainingComplete, onComplete]);
 
@@ -589,9 +589,23 @@ export function PersonaTraining({ personaId: initialPersonaId, onTrainingComplet
         )}
         
         {!isTraining && overallProgress === 100 && (
-          <div className="flex items-center justify-center text-green-600">
-            <CheckCircle className="h-5 w-5 mr-2" />
-            <span className="font-medium">Training completed successfully!</span>
+          <div className="space-y-4">
+            <div className="flex items-center justify-center text-green-600">
+              <CheckCircle className="h-5 w-5 mr-2" />
+              <span className="font-medium">Training completed successfully!</span>
+            </div>
+            <button
+              onClick={() => {
+                toast.success('Persona is ready! Redirecting to conversations...');
+                setTimeout(() => {
+                  onComplete?.();
+                }, 500);
+              }}
+              className="mx-auto bg-gradient-to-r from-green-600 to-blue-600 text-white px-8 py-3 rounded-full font-semibold hover:shadow-lg transition-all duration-300 flex items-center"
+            >
+              <MessageCircle className="h-5 w-5 mr-2" />
+              Start Conversation
+            </button>
           </div>
         )}
       </div>
