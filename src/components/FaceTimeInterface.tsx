@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Volume2, VolumeX, Phone, Sparkles, Heart } from 'lucide-react';
-import { RealTimeSpeechRecognition, SpeechResult, ConversationContext } from '../lib/speechRecognition';
-import { ContextualAIEngine } from '../lib/contextualAI';
+import { Mic, MicOff, Volume2, VolumeX, Phone, Heart } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import { memoryConversationEngine } from '../lib/memoryConversation';
 import toast from 'react-hot-toast';
+
+const ELEVENLABS_API_KEY = import.meta.env.VITE_ELEVENLABS_API_KEY;
+const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1';
 
 interface FaceTimeInterfaceProps {
   personaId: string;
@@ -13,46 +15,49 @@ interface FaceTimeInterfaceProps {
   onEndCall: () => void;
 }
 
-export function FaceTimeInterface({ personaId, personaName, personaAvatar, onEndCall }: FaceTimeInterfaceProps) {
+interface Message {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export function FaceTimeInterface({
+  personaId,
+  personaName,
+  personaAvatar,
+  onEndCall
+}: FaceTimeInterfaceProps) {
   const [isListening, setIsListening] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
-  const [currentTranscript, setCurrentTranscript] = useState('');
   const [isPersonaSpeaking, setIsPersonaSpeaking] = useState(false);
   const [personaMessage, setPersonaMessage] = useState('');
-  const [conversationContext, setConversationContext] = useState<ConversationContext>({
-    recentMessages: [],
-    currentTopic: 'general',
-    emotionalTone: 'neutral',
-    speakingPace: 1.0
-  });
-  const [personaData, setPersonaData] = useState<any>(null);
+  const [currentTranscript, setCurrentTranscript] = useState('');
   const [callDuration, setCallDuration] = useState(0);
-  const [permissionGranted, setPermissionGranted] = useState<boolean | null>(null);
-  const [audioWaveform, setAudioWaveform] = useState<number[]>([]);
+  const [conversationHistory, setConversationHistory] = useState<Message[]>([]);
+  const [personaData, setPersonaData] = useState<any>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | undefined>(personaAvatar);
+  const [audioWaveform, setAudioWaveform] = useState<number[]>([0, 0, 0, 0, 0]);
+  const [isInitialized, setIsInitialized] = useState(false);
 
-  const speechRecognition = useRef<RealTimeSpeechRecognition | null>(null);
-  const contextualAI = useRef<ContextualAIEngine | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const conversationId = useRef<string | null>(null);
-  const lastProcessedTranscript = useRef<string>('');
-  const callStartTime = useRef<number>(Date.now());
+  const recognitionRef = useRef<any>(null);
+  const conversationIdRef = useRef<string | null>(null);
+  const callStartRef = useRef<number>(Date.now());
+  const isProcessingRef = useRef(false);
   const { user } = useAuth();
 
   useEffect(() => {
-    initializeConversation();
+    initialize();
 
-    // Update call duration every second
     const durationInterval = setInterval(() => {
-      setCallDuration(Math.floor((Date.now() - callStartTime.current) / 1000));
+      setCallDuration(Math.floor((Date.now() - callStartRef.current) / 1000));
     }, 1000);
 
-    // Simulate audio waveform animation
     const waveformInterval = setInterval(() => {
-      if (isPersonaSpeaking) {
-        setAudioWaveform(Array.from({ length: 5 }, () => Math.random() * 100));
-      } else {
-        setAudioWaveform([0, 0, 0, 0, 0]);
-      }
+      setAudioWaveform(prev =>
+        isPersonaSpeaking
+          ? Array.from({ length: 5 }, () => Math.random() * 100)
+          : [0, 0, 0, 0, 0]
+      );
     }, 100);
 
     return () => {
@@ -62,41 +67,39 @@ export function FaceTimeInterface({ personaId, personaName, personaAvatar, onEnd
     };
   }, []);
 
-  useEffect(() => {
-    // Auto-start listening after a brief delay
-    const timer = setTimeout(() => {
-      if (speechRecognition.current && !isListening && permissionGranted === null) {
-        toggleListening();
-      }
-    }, 2000);
-
-    return () => clearTimeout(timer);
-  }, [permissionGranted]);
-
-  const initializeConversation = async () => {
+  const initialize = async () => {
     try {
-      const { data: persona, error } = await supabase
+      const { data: persona } = await supabase
         .from('personas')
         .select('*')
         .eq('id', personaId)
         .single();
 
-      if (error || !persona) {
-        toast.error('Failed to load persona data');
+      if (!persona) {
+        toast.error('Failed to load persona');
         return;
       }
 
       setPersonaData(persona);
-      contextualAI.current = new ContextualAIEngine(personaId, persona);
 
-      speechRecognition.current = new RealTimeSpeechRecognition({
-        continuous: true,
-        interimResults: true,
-        language: 'en-US'
-      });
+      // Try to find a photo from uploaded content if no avatar provided
+      if (!avatarUrl) {
+        const { data: content } = await supabase
+          .from('persona_content')
+          .select('file_url, metadata')
+          .eq('persona_id', personaId)
+          .eq('content_type', 'image')
+          .limit(1)
+          .single();
 
-      setupSpeechRecognitionHandlers();
+        if (content?.file_url) {
+          setAvatarUrl(content.file_url);
+        } else if (content?.metadata?.media_url) {
+          setAvatarUrl(content.metadata.media_url);
+        }
+      }
 
+      // Create conversation record
       if (user) {
         const { data: conversation } = await supabase
           .from('conversations')
@@ -104,265 +107,302 @@ export function FaceTimeInterface({ personaId, personaName, personaAvatar, onEnd
             user_id: user.id,
             persona_id: personaId,
             conversation_type: 'voice_call',
-            started_at: new Date().toISOString()
+            started_at: new Date().toISOString(),
+            metadata: {}
           })
           .select()
           .single();
 
         if (conversation) {
-          conversationId.current = conversation.id;
+          conversationIdRef.current = conversation.id;
         }
       }
 
-      // Generate and play initial greeting
-      setTimeout(() => playGreeting(), 1000);
+      setIsInitialized(true);
+
+      // Play personalized greeting after short delay
+      setTimeout(() => playGreeting(persona), 1200);
 
     } catch (error) {
-      console.error('Error initializing conversation:', error);
-      toast.error('Failed to initialize conversation');
+      console.error('Initialization error:', error);
+      toast.error('Failed to start call');
     }
   };
 
-  const setupSpeechRecognitionHandlers = () => {
-    if (!speechRecognition.current) return;
+  const playGreeting = async (persona: any) => {
+    const greetingPrompt = `Generate a warm, natural greeting of 1-2 sentences as ${persona.name}. 
+    You are their ${persona.relationship}. Make it feel like a real FaceTime call just connected. 
+    Be warm, loving, and personal. Do not say "Hello" generically — make it feel like you.`;
 
-    speechRecognition.current.onResult((result: SpeechResult) => {
-      setCurrentTranscript(result.transcript);
+    try {
+      const greeting = await memoryConversationEngine.generateMemoryEnhancedResponse(
+        personaId,
+        '__greeting__',
+        []
+      );
 
-      if (result.isFinal && result.transcript.trim().length > 0) {
-        if (lastProcessedTranscript.current !== result.transcript.trim()) {
-          lastProcessedTranscript.current = result.transcript.trim();
-          handleUserSpeech(result.transcript);
-        }
-      }
-    });
+      await speakAndDisplay(greeting, []);
+    } catch (error) {
+      // Fallback greeting
+      await speakAndDisplay(
+        `Oh, it's so good to see your face. I've been thinking about you.`,
+        []
+      );
+    }
+  };
 
-    speechRecognition.current.onError((error: string) => {
-      if (!error.includes('no-speech') && !error.includes('aborted')) {
-        console.error('Speech recognition error:', error);
-      }
-    });
-
-    speechRecognition.current.onStart(() => {
-      setIsListening(true);
-      stopAllAudio();
-    });
-
-    speechRecognition.current.onEnd(() => {
-      setIsListening(false);
-      if (!isPersonaSpeaking) {
-        setTimeout(() => {
-          if (speechRecognition.current) {
-            speechRecognition.current.startListening().catch(console.error);
+  const speakWithElevenLabs = async (text: string, voiceId: string): Promise<boolean> => {
+    try {
+      const response = await fetch(`${ELEVENLABS_API_URL}/text-to-speech/${voiceId}`, {
+        method: 'POST',
+        headers: {
+          'xi-api-key': ELEVENLABS_API_KEY!,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          text,
+          model_id: 'eleven_multilingual_v2',
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.85,
+            style: 0.2,
+            use_speaker_boost: true
           }
-        }, 1000);
-      }
-    });
-  };
-
-  const playGreeting = async () => {
-    if (!contextualAI.current) return;
-
-    try {
-      const greeting = await contextualAI.current.generateContextualResponse(
-        "Hello",
-        conversationContext,
-        false
-      );
-
-      await speakPersonaMessage(greeting.text, greeting.audioBuffer);
-    } catch (error) {
-      console.error('Error generating greeting:', error);
-    }
-  };
-
-  const handleUserSpeech = async (transcript: string) => {
-    if (isPersonaSpeaking || transcript.trim().length === 0) {
-      return;
-    }
-
-    stopAllAudio();
-
-    if (speechRecognition.current) {
-      speechRecognition.current.stopListening();
-    }
-
-    // Save user message
-    if (conversationId.current) {
-      await supabase.from('messages').insert({
-        conversation_id: conversationId.current,
-        sender_type: 'user',
-        content: transcript,
-        message_type: 'text'
+        })
       });
-    }
 
-    await generatePersonaResponse(transcript);
-  };
+      if (!response.ok) return false;
 
-  const generatePersonaResponse = async (userSpeech: string) => {
-    if (!contextualAI.current) return;
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
 
-    try {
-      const context = speechRecognition.current?.getConversationContext() || conversationContext;
-      setConversationContext(context);
-
-      const response = await contextualAI.current.generateContextualResponse(
-        userSpeech,
-        context,
-        false
-      );
-
-      // Save persona message
-      if (conversationId.current) {
-        await supabase.from('messages').insert({
-          conversation_id: conversationId.current,
-          sender_type: 'persona',
-          content: response.text,
-          message_type: 'text'
-        });
-      }
-
-      await speakPersonaMessage(response.text, response.audioBuffer);
-
-    } catch (error) {
-      console.error('Error generating persona response:', error);
-    }
-  };
-
-  const speakPersonaMessage = async (text: string, audioBuffer?: ArrayBuffer) => {
-    setIsPersonaSpeaking(true);
-    setPersonaMessage(text);
-    setCurrentTranscript('');
-
-    try {
-      if (audioBuffer && isSpeakerOn) {
-        await playAudioResponse(audioBuffer);
-      } else if (isSpeakerOn) {
-        await speakText(text);
-      }
-    } catch (error) {
-      console.error('Error speaking persona message:', error);
-    } finally {
-      setTimeout(() => {
-        setIsPersonaSpeaking(false);
-        setPersonaMessage('');
-        lastProcessedTranscript.current = '';
-
-        // Resume listening
-        if (speechRecognition.current && !isListening) {
-          speechRecognition.current.startListening().catch(console.error);
-        }
-      }, 1000);
-    }
-  };
-
-  const playAudioResponse = async (audioBuffer: ArrayBuffer): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      try {
+      return new Promise((resolve) => {
         if (!audioRef.current) {
-          reject(new Error('Audio element not available'));
+          resolve(false);
           return;
         }
-
-        const audioBlob = new Blob([audioBuffer], { type: 'audio/mpeg' });
-        const audioUrl = URL.createObjectURL(audioBlob);
 
         audioRef.current.src = audioUrl;
         audioRef.current.volume = isSpeakerOn ? 1.0 : 0.0;
 
         audioRef.current.onended = () => {
           URL.revokeObjectURL(audioUrl);
-          resolve();
+          resolve(true);
         };
 
-        audioRef.current.onerror = (error) => {
+        audioRef.current.onerror = () => {
           URL.revokeObjectURL(audioUrl);
-          reject(error);
+          resolve(false);
         };
 
-        audioRef.current.play().catch((error) => {
-          URL.revokeObjectURL(audioUrl);
-          reject(error);
-        });
-      } catch (error) {
-        reject(error);
-      }
-    });
+        audioRef.current.play().catch(() => resolve(false));
+      });
+    } catch {
+      return false;
+    }
   };
 
-  const speakText = async (text: string): Promise<void> => {
-    return new Promise((resolve) => {
-      if ('speechSynthesis' in window) {
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = 0.9;
-        utterance.pitch = 1.0;
-        utterance.volume = isSpeakerOn ? 1.0 : 0.0;
+  const speakAndDisplay = async (text: string, history: Message[]) => {
+    setIsPersonaSpeaking(true);
+    setPersonaMessage(text);
 
-        utterance.onend = () => resolve();
-        utterance.onerror = () => resolve();
+    // Stop listening while persona speaks
+    stopListening();
 
-        speechSynthesis.speak(utterance);
+    try {
+      if (isSpeakerOn) {
+        // Try ElevenLabs cloned voice first
+        const voiceId = personaData?.voice_model_id;
+        let spoke = false;
+
+        if (ELEVENLABS_API_KEY && voiceId && !voiceId.startsWith('voice_')) {
+          spoke = await speakWithElevenLabs(text, voiceId);
+        }
+
+        // Fallback to browser TTS
+        if (!spoke) {
+          await new Promise<void>((resolve) => {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 0.92;
+            utterance.pitch = 1.0;
+            utterance.volume = 1.0;
+            utterance.onend = () => resolve();
+            utterance.onerror = () => resolve();
+            speechSynthesis.speak(utterance);
+          });
+        }
       } else {
-        resolve();
+        // Speaker off — just wait a beat for the message to show
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
-    });
-  };
+    } catch (error) {
+      console.error('Speech error:', error);
+    } finally {
+      setIsPersonaSpeaking(false);
+      setPersonaMessage('');
+      isProcessingRef.current = false;
 
-  const stopAllAudio = () => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-      audioRef.current.src = '';
-    }
-
-    if ('speechSynthesis' in window) {
-      speechSynthesis.cancel();
+      // Resume listening after persona finishes speaking
+      setTimeout(() => startListening(), 500);
     }
   };
 
-  const toggleListening = async () => {
-    if (!speechRecognition.current) return;
+  const handleUserSpeech = async (transcript: string) => {
+    if (isProcessingRef.current || !transcript.trim()) return;
+    isProcessingRef.current = true;
 
-    if (isListening) {
-      speechRecognition.current.stopListening();
-      setIsListening(false);
-    } else {
-      if (permissionGranted === null) {
-        try {
-          await navigator.mediaDevices.getUserMedia({ audio: true });
-          setPermissionGranted(true);
-        } catch (error) {
-          setPermissionGranted(false);
-          toast.error('Microphone permission required');
-          return;
+    setCurrentTranscript('');
+    stopListening();
+
+    // Save user message
+    if (conversationIdRef.current) {
+      await supabase.from('messages').insert({
+        conversation_id: conversationIdRef.current,
+        sender_type: 'user',
+        content: transcript,
+        message_type: 'text'
+      });
+    }
+
+    const updatedHistory: Message[] = [
+      ...conversationHistory,
+      { role: 'user', content: transcript }
+    ];
+
+    setConversationHistory(updatedHistory);
+
+    try {
+      const response = await memoryConversationEngine.generateMemoryEnhancedResponse(
+        personaId,
+        transcript,
+        updatedHistory
+      );
+
+      const newHistory: Message[] = [
+        ...updatedHistory,
+        { role: 'assistant', content: response }
+      ];
+
+      setConversationHistory(newHistory);
+
+      // Save persona message
+      if (conversationIdRef.current) {
+        await supabase.from('messages').insert({
+          conversation_id: conversationIdRef.current,
+          sender_type: 'persona',
+          content: response,
+          message_type: 'text'
+        });
+      }
+
+      await speakAndDisplay(response, newHistory);
+
+    } catch (error) {
+      console.error('Response generation error:', error);
+      isProcessingRef.current = false;
+      startListening();
+    }
+  };
+
+  const startListening = () => {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      toast.error('Speech recognition not supported. Use Chrome or Edge.');
+      return;
+    }
+
+    const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+    const recognition = new SpeechRecognition();
+
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => setIsListening(true);
+
+    recognition.onresult = (event: any) => {
+      let interim = '';
+      let final = '';
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          final += transcript;
+        } else {
+          interim += transcript;
         }
       }
 
+      setCurrentTranscript(interim || final);
+
+      if (final.trim()) {
+        recognition.stop();
+        handleUserSpeech(final.trim());
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      if (event.error !== 'no-speech' && event.error !== 'aborted') {
+        console.error('Speech recognition error:', event.error);
+      }
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+
+    try {
+      recognition.start();
+    } catch (error) {
+      console.error('Failed to start recognition:', error);
+    }
+  };
+
+  const stopListening = () => {
+    if (recognitionRef.current) {
       try {
-        await speechRecognition.current.startListening();
-      } catch (error) {
-        console.error('Failed to start listening:', error);
-        toast.error('Failed to start speech recognition');
+        recognitionRef.current.stop();
+      } catch {}
+    }
+    setIsListening(false);
+  };
+
+  const toggleMic = async () => {
+    if (isPersonaSpeaking) return;
+
+    if (isListening) {
+      stopListening();
+    } else {
+      try {
+        await navigator.mediaDevices.getUserMedia({ audio: true });
+        startListening();
+      } catch {
+        toast.error('Microphone permission required');
       }
     }
   };
 
   const cleanup = () => {
-    stopAllAudio();
+    stopListening();
 
-    if (speechRecognition.current) {
-      speechRecognition.current.destroy();
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
     }
 
-    if (conversationId.current) {
+    speechSynthesis.cancel();
+
+    if (conversationIdRef.current) {
       supabase
         .from('conversations')
         .update({
           ended_at: new Date().toISOString(),
           duration_seconds: callDuration
         })
-        .eq('id', conversationId.current);
+        .eq('id', conversationIdRef.current)
+        .then(() => {});
     }
   };
 
@@ -373,151 +413,136 @@ export function FaceTimeInterface({ personaId, personaName, personaAvatar, onEnd
   };
 
   return (
-    <div className="h-screen bg-gradient-to-br from-gray-900 via-slate-900 to-gray-900 flex flex-col">
-      {/* Header with call duration */}
-      <div className="bg-black/40 backdrop-blur-sm px-6 py-4">
+    <div className="h-screen bg-black flex flex-col">
+
+      {/* Header */}
+      <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/70 to-transparent px-6 pt-safe pt-6 pb-8">
         <div className="flex items-center justify-between text-white">
           <div>
             <h2 className="text-xl font-semibold">{personaName}</h2>
-            <div className="flex items-center gap-2 text-sm text-gray-300">
-              <div className={`w-2 h-2 rounded-full ${isListening ? 'bg-green-400 animate-pulse' : 'bg-gray-400'}`}></div>
-              <span>{formatDuration(callDuration)}</span>
+            <div className="flex items-center gap-2 mt-1">
+              <div className={`w-2 h-2 rounded-full ${
+                isPersonaSpeaking ? 'bg-blue-400 animate-pulse' :
+                isListening ? 'bg-green-400 animate-pulse' :
+                'bg-white/40'
+              }`} />
+              <span className="text-sm text-white/70">
+                {isPersonaSpeaking ? 'Speaking...' :
+                 isListening ? 'Listening...' :
+                 formatDuration(callDuration)}
+              </span>
             </div>
-          </div>
-          <div className="text-sm text-gray-400">
-            {isListening ? 'Listening...' : 'Paused'}
           </div>
         </div>
       </div>
 
-      {/* Main video area with persona avatar/image */}
-      <div className="flex-1 relative overflow-hidden">
-        {/* Persona Display */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          {personaAvatar ? (
-            <img
-              src={personaAvatar}
-              alt={personaName}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="w-full h-full bg-gradient-to-br from-blue-600/20 to-purple-600/20 flex items-center justify-center">
-              <Heart className="h-48 w-48 text-white/30" fill="currentColor" />
+      {/* Main photo area — full screen */}
+      <div className="flex-1 relative">
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt={personaName}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center">
+            <div className="text-center">
+              <div className="w-40 h-40 bg-gradient-to-br from-blue-500/40 to-purple-600/40 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-white/20">
+                <span className="text-7xl font-light text-white/80">
+                  {personaName[0]}
+                </span>
+              </div>
+              <p className="text-white/40 text-sm">No photo uploaded yet</p>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Overlay gradient for better text readability */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40"></div>
-        </div>
+        {/* Dark overlay for readability */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
 
-        {/* Speaking indicators and text overlay */}
-        <div className="absolute inset-0 flex flex-col justify-end p-8 pointer-events-none">
-          {/* Persona speaking indicator */}
-          {isPersonaSpeaking && (
-            <div className="mb-6">
-              <div className="bg-black/60 backdrop-blur-md rounded-2xl p-6 max-w-2xl">
-                <div className="flex items-center gap-3 mb-3">
-                  <Sparkles className="h-5 w-5 text-blue-400 animate-pulse" />
-                  <span className="text-sm font-medium text-blue-300">{personaName} is speaking</span>
-                </div>
-                <p className="text-white text-lg leading-relaxed">{personaMessage}</p>
-
-                {/* Audio waveform visualization */}
-                <div className="flex items-center gap-1 mt-4">
-                  {audioWaveform.map((height, i) => (
-                    <div
-                      key={i}
-                      className="w-1 bg-blue-400 rounded-full transition-all duration-100"
-                      style={{ height: `${Math.max(4, height * 0.3)}px` }}
-                    />
-                  ))}
-                </div>
+        {/* Persona speaking bubble */}
+        {isPersonaSpeaking && personaMessage && (
+          <div className="absolute bottom-32 left-4 right-4">
+            <div className="bg-black/70 backdrop-blur-md rounded-3xl px-6 py-4 max-w-lg mx-auto">
+              <p className="text-white text-base leading-relaxed">{personaMessage}</p>
+              <div className="flex items-center gap-1 mt-3">
+                {audioWaveform.map((height, i) => (
+                  <div
+                    key={i}
+                    className="w-1 bg-blue-400 rounded-full transition-all duration-75"
+                    style={{ height: `${Math.max(3, height * 0.25)}px` }}
+                  />
+                ))}
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* User speaking indicator */}
-          {currentTranscript && !isPersonaSpeaking && (
-            <div className="mb-6">
-              <div className="bg-purple-600/80 backdrop-blur-md rounded-2xl p-6 max-w-2xl ml-auto">
-                <div className="flex items-center gap-2 mb-2">
-                  <Mic className="h-4 w-4 text-white animate-pulse" />
-                  <span className="text-sm font-medium text-purple-100">You're speaking</span>
-                </div>
-                <p className="text-white text-lg">{currentTranscript}</p>
+        {/* User transcript bubble */}
+        {currentTranscript && !isPersonaSpeaking && (
+          <div className="absolute bottom-32 left-4 right-4">
+            <div className="bg-purple-600/80 backdrop-blur-md rounded-3xl px-6 py-4 max-w-lg mx-auto ml-auto">
+              <div className="flex items-center gap-2 mb-1">
+                <Mic className="h-3 w-3 text-white/70 animate-pulse" />
+                <span className="text-xs text-white/70">You</span>
               </div>
+              <p className="text-white text-base">{currentTranscript}</p>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Bottom controls */}
-      <div className="bg-black/60 backdrop-blur-lg p-8">
-        <div className="flex items-center justify-center gap-8">
-          {/* Microphone toggle */}
+      <div className="absolute bottom-0 left-0 right-0 z-20 bg-gradient-to-t from-black/90 to-transparent pb-safe pb-10 pt-16">
+        <div className="flex items-center justify-center gap-10 px-8">
+
+          {/* Mic button */}
           <button
-            onClick={toggleListening}
-            disabled={permissionGranted === false}
-            className={`p-5 rounded-full transition-all duration-300 shadow-2xl ${
+            onClick={toggleMic}
+            disabled={isPersonaSpeaking}
+            className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-200 shadow-xl ${
               isListening
-                ? 'bg-white/20 hover:bg-white/30 ring-4 ring-green-400/50'
-                : 'bg-white/20 hover:bg-white/30'
-            } disabled:opacity-30 disabled:cursor-not-allowed`}
-            title={isListening ? 'Mute' : 'Unmute'}
+                ? 'bg-white ring-4 ring-green-400/60'
+                : 'bg-white/20 backdrop-blur'
+            } disabled:opacity-40`}
           >
-            {isListening ? (
-              <Mic className="h-7 w-7 text-white" />
-            ) : (
-              <MicOff className="h-7 w-7 text-white" />
-            )}
+            {isListening
+              ? <Mic className="h-7 w-7 text-black" />
+              : <MicOff className="h-7 w-7 text-white" />
+            }
           </button>
 
-          {/* End call button */}
+          {/* End call */}
           <button
-            onClick={() => {
-              cleanup();
-              onEndCall();
-            }}
-            className="p-6 bg-red-500 hover:bg-red-600 rounded-full transition-all duration-300 shadow-2xl hover:scale-110"
-            title="End call"
+            onClick={() => { cleanup(); onEndCall(); }}
+            className="w-20 h-20 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center shadow-2xl transition-all duration-200 hover:scale-105"
           >
-            <Phone className="h-8 w-8 text-white" />
+            <Phone className="h-8 w-8 text-white rotate-[135deg]" />
           </button>
 
           {/* Speaker toggle */}
           <button
             onClick={() => setIsSpeakerOn(!isSpeakerOn)}
-            className={`p-5 rounded-full transition-all duration-300 shadow-2xl ${
+            className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-200 shadow-xl ${
               isSpeakerOn
-                ? 'bg-white/20 hover:bg-white/30'
-                : 'bg-red-500/80 hover:bg-red-600'
+                ? 'bg-white/20 backdrop-blur'
+                : 'bg-red-500/80'
             }`}
-            title={isSpeakerOn ? 'Mute speaker' : 'Unmute speaker'}
           >
-            {isSpeakerOn ? (
-              <Volume2 className="h-7 w-7 text-white" />
-            ) : (
-              <VolumeX className="h-7 w-7 text-white" />
-            )}
+            {isSpeakerOn
+              ? <Volume2 className="h-7 w-7 text-white" />
+              : <VolumeX className="h-7 w-7 text-white" />
+            }
           </button>
         </div>
 
-        {/* Status message */}
-        <div className="text-center mt-6">
-          {permissionGranted === false ? (
-            <p className="text-red-300 text-sm">Microphone access required</p>
-          ) : isListening ? (
-            <p className="text-green-300 text-sm flex items-center justify-center gap-2">
-              <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
-              Listening - speak naturally
-            </p>
-          ) : (
-            <p className="text-gray-400 text-sm">Tap microphone to speak</p>
-          )}
-        </div>
+        <p className="text-center text-white/40 text-xs mt-4">
+          {isPersonaSpeaking ? `${personaName} is speaking...` :
+           isListening ? 'Listening — speak naturally' :
+           'Tap mic to speak'}
+        </p>
       </div>
 
-      {/* Hidden audio element */}
       <audio ref={audioRef} style={{ display: 'none' }} />
     </div>
   );
