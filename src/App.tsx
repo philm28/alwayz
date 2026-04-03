@@ -506,31 +506,17 @@ function App() {
   };
 
   const CreatePersonaFlow = () => {
-    const [completedPersonaId, setCompletedPersonaId] = useState<string | null>(null);
-
     const handleTrainingComplete = async () => {
-      console.log('Training completed - preparing to start conversation');
+      console.log('Training completed - navigating to conversation view');
 
-      // Find the newly created persona
-      const newPersonas = personas.filter(p => p.status === 'active');
-      if (newPersonas.length > 0) {
-        const newestPersona = newPersonas[newPersonas.length - 1];
-        setCompletedPersonaId(newestPersona.id);
-      }
-    };
-
-    const startConversation = async () => {
-      if (completedPersonaId) {
-        const persona = personas.find(p => p.id === completedPersonaId);
-        if (persona) {
-          setSelectedPersona(persona);
-          setConversationType('voice_call');
-          setCurrentView('conversation');
-          toast.success(`Connected to ${persona.name}!`);
-        }
+      const activePersonas = personas.filter(p => p.status === 'active');
+      if (activePersonas.length > 0) {
+        const newestPersona = activePersonas[activePersonas.length - 1];
+        setSelectedPersona(newestPersona);
+        setConversationType('chat');
+        setCurrentView('conversation');
       } else {
         setCurrentView('dashboard');
-        toast.success('Persona created! Select it from your dashboard to start talking.');
       }
     };
 
