@@ -87,19 +87,17 @@ export class VoiceCloning {
         cloneQuality: this.calculateCloneQuality(audioSamples, characteristics)
       };
 
+      // ✅ Train voice model first — this saves the real voice ID to Supabase
       if (audioSamples.length >= 3) {
         await this.trainVoiceModel(voiceProfile);
       }
 
+      // ✅ REMOVED: metadata update that was causing 400 error
+      // Only update voice_sample_count — no metadata column
       await supabase
         .from('personas')
         .update({
-          metadata: {
-            ...personaMetadata,
-            voice_profile: voiceProfile,
-            voice_samples_count: audioSamples.length,
-            voice_clone_quality: voiceProfile.cloneQuality
-          }
+          voice_sample_count: audioSamples.length
         })
         .eq('id', personaId);
 
@@ -220,15 +218,11 @@ export class VoiceCloning {
 
   private calculateCloneQuality(audioSamples: File[], characteristics: any): number {
     let quality = 0.3;
-
     quality += Math.min(audioSamples.length * 0.1, 0.4);
-
     const totalDuration = audioSamples.reduce((sum, file) => {
       return sum + (file.size / 16000);
     }, 0);
-
     quality += Math.min(totalDuration / 300, 0.3);
-
     return Math.min(quality, 1.0);
   }
 
@@ -239,9 +233,7 @@ export class VoiceCloning {
 
     try {
       const response = await fetch(`${ELEVENLABS_API_URL}/user`, {
-        headers: {
-          'xi-api-key': ELEVENLABS_API_KEY
-        }
+        headers: { 'xi-api-key': ELEVENLABS_API_KEY }
       });
 
       if (!response.ok) {
@@ -297,9 +289,7 @@ export class VoiceCloning {
 
       const response = await fetch(`${ELEVENLABS_API_URL}/voices/add`, {
         method: 'POST',
-        headers: {
-          'xi-api-key': ELEVENLABS_API_KEY
-        },
+        headers: { 'xi-api-key': ELEVENLABS_API_KEY },
         body: formData
       });
 
@@ -309,16 +299,13 @@ export class VoiceCloning {
 
         if (response.status === 401) {
           if (errorText.includes('missing_permissions')) {
-            // Parse the specific permission that's missing
             let missingPermission = 'voice cloning';
             try {
               const errorData = JSON.parse(errorText);
               if (errorData.detail?.message) {
                 missingPermission = errorData.detail.message;
               }
-            } catch (e) {
-              // Keep default message
-            }
+            } catch (e) {}
             throw new Error(`ELEVENLABS_PERMISSIONS_ERROR: ${missingPermission}`);
           }
           throw new Error('ELEVENLABS_AUTH_ERROR: Invalid or expired API key');
@@ -336,6 +323,7 @@ export class VoiceCloning {
 
       console.log('✅ Voice model training completed with ID:', data.voice_id);
 
+      // ✅ Save ONLY voice_model_id — no metadata column
       const { error: updateError } = await supabase
         .from('personas')
         .update({ voice_model_id: data.voice_id })
@@ -397,13 +385,12 @@ export class VoiceCloning {
     emotion?: string
   ): Promise<ArrayBuffer> {
     try {
-      // ✅ FIX: Load voice profile from Supabase if not in memory
       let voiceProfile = this.voiceProfiles.get(personaId);
 
       if (!voiceProfile) {
         const { data } = await supabase
           .from('personas')
-          .select('voice_model_id, gender, metadata')
+          .select('voice_model_id, gender')
           .eq('id', personaId)
           .single();
 
@@ -454,18 +441,11 @@ export class VoiceCloning {
             return await response.arrayBuffer();
           } else {
             const errorText = await response.text();
-            console.warn('❌ ElevenLabs synthesis failed:', response.status, errorText, '- falling back to OpenAI');
+            console.warn('❌ ElevenLabs synthesis failed:', response.status, errorText);
           }
         } catch (error) {
-          console.warn('❌ ElevenLabs error, falling back to OpenAI:', error);
+          console.warn('❌ ElevenLabs error:', error);
         }
-      } else {
-        console.log('ℹ️ Skipping ElevenLabs:', {
-          hasKey: !!ELEVENLABS_API_KEY,
-          hasProfile: !!voiceProfile,
-          isCloned: voiceProfile?.isCloned,
-          voiceModelId: voiceProfile?.voiceModelId
-        });
       }
 
       if (!openai) {
@@ -483,7 +463,9 @@ export class VoiceCloning {
         'neutral': 'echo'
       };
 
-      const voiceKey = characteristics ? `${characteristics.gender}-${characteristics.age}` : 'neutral';
+      const voiceKey = characteristics
+        ? `${characteristics.gender}-${characteristics.age}`
+        : 'neutral';
       const selectedVoice = voiceMap[voiceKey] || 'alloy';
 
       const openAiResponse = await openai.audio.speech.create({
@@ -530,9 +512,7 @@ export class VoiceCloning {
 
     try {
       const response = await fetch(`${ELEVENLABS_API_URL}/voices`, {
-        headers: {
-          'xi-api-key': ELEVENLABS_API_KEY
-        }
+        headers: { 'xi-api-key': ELEVENLABS_API_KEY }
       });
 
       if (!response.ok) {
@@ -554,7 +534,7 @@ export class VoiceCloning {
 
       const { data: persona, error: fetchError } = await supabase
         .from('personas')
-        .select('voice_model_id, metadata')
+        .select('voice_model_id')
         .eq('id', personaId)
         .single();
 
@@ -586,9 +566,7 @@ export class VoiceCloning {
           .update({ voice_model_id: matchingVoice.voice_id })
           .eq('id', personaId);
 
-        if (updateError) {
-          throw updateError;
-        }
+        if (updateError) throw updateError;
 
         this.voiceProfiles.delete(personaId);
         console.log('✅ Voice ID fixed successfully!');
@@ -596,15 +574,12 @@ export class VoiceCloning {
       } else {
         console.log('❌ No matching voice found. Clearing invalid voice ID...');
 
-        const { error: clearError } = await supabase
+        await supabase
           .from('personas')
           .update({ voice_model_id: null })
           .eq('id', personaId);
 
-        if (!clearError) {
-          console.log('✅ Invalid voice ID cleared. Please re-upload voice samples.');
-        }
-
+        console.log('✅ Invalid voice ID cleared. Please re-upload voice samples.');
         return false;
       }
     } catch (error) {
@@ -614,16 +589,12 @@ export class VoiceCloning {
   }
 
   async deleteVoice(voiceId: string): Promise<boolean> {
-    if (!ELEVENLABS_API_KEY) {
-      return false;
-    }
+    if (!ELEVENLABS_API_KEY) return false;
 
     try {
       const response = await fetch(`${ELEVENLABS_API_URL}/voices/${voiceId}`, {
         method: 'DELETE',
-        headers: {
-          'xi-api-key': ELEVENLABS_API_KEY
-        }
+        headers: { 'xi-api-key': ELEVENLABS_API_KEY }
       });
 
       return response.ok;
