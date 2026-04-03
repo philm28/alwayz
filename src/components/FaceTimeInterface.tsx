@@ -36,13 +36,13 @@ export function FaceTimeInterface({
   const [personaData, setPersonaData] = useState<any>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(personaAvatar);
   const [audioWaveform, setAudioWaveform] = useState<number[]>([0, 0, 0, 0, 0]);
-  const [isInitialized, setIsInitialized] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const recognitionRef = useRef<any>(null);
   const conversationIdRef = useRef<string | null>(null);
   const callStartRef = useRef<number>(Date.now());
   const isProcessingRef = useRef(false);
+  const personaDataRef = useRef<any>(null); // ✅ ref so voice always has latest data
   const { user } = useAuth();
 
   useEffect(() => {
@@ -53,8 +53,8 @@ export function FaceTimeInterface({
     }, 1000);
 
     const waveformInterval = setInterval(() => {
-      setAudioWaveform(prev =>
-        isPersonaSpeaking
+      setAudioWaveform(
+        isProcessingRef.current
           ? Array.from({ length: 5 }, () => Math.random() * 100)
           : [0, 0, 0, 0, 0]
       );
@@ -80,9 +80,11 @@ export function FaceTimeInterface({
         return;
       }
 
+      // ✅ Store in both state AND ref so voice calls always have it
       setPersonaData(persona);
+      personaDataRef.current = persona;
 
-      // Try to find a photo from uploaded content if no avatar provided
+      // Try to find a photo if none provided
       if (!avatarUrl) {
         const { data: content } = await supabase
           .from('persona_content')
@@ -90,7 +92,7 @@ export function FaceTimeInterface({
           .eq('persona_id', personaId)
           .eq('content_type', 'image')
           .limit(1)
-          .single();
+          .maybeSingle();
 
         if (content?.file_url) {
           setAvatarUrl(content.file_url);
@@ -118,9 +120,7 @@ export function FaceTimeInterface({
         }
       }
 
-      setIsInitialized(true);
-
-      // Play personalized greeting after short delay
+      // ✅ Pass persona directly — don't rely on state
       setTimeout(() => playGreeting(persona), 1200);
 
     } catch (error) {
@@ -129,30 +129,18 @@ export function FaceTimeInterface({
     }
   };
 
-  const playGreeting = async (persona: any) => {
-    const greetingPrompt = `Generate a warm, natural greeting of 1-2 sentences as ${persona.name}. 
-    You are their ${persona.relationship}. Make it feel like a real FaceTime call just connected. 
-    Be warm, loving, and personal. Do not say "Hello" generically — make it feel like you.`;
-
-    try {
-      const greeting = await memoryConversationEngine.generateMemoryEnhancedResponse(
-        personaId,
-        '__greeting__',
-        []
-      );
-
-      await speakAndDisplay(greeting, []);
-    } catch (error) {
-      // Fallback greeting
-      await speakAndDisplay(
-        `Oh, it's so good to see your face. I've been thinking about you.`,
-        []
-      );
-    }
+  const getVoiceId = (): string | null => {
+    // ✅ Always read from ref, never from state
+    const persona = personaDataRef.current;
+    if (!persona?.voice_model_id) return null;
+    if (persona.voice_model_id.startsWith('voice_')) return null;
+    return persona.voice_model_id;
   };
 
   const speakWithElevenLabs = async (text: string, voiceId: string): Promise<boolean> => {
     try {
+      console.log(`✅ Speaking with ElevenLabs voice: ${voiceId}`);
+
       const response = await fetch(`${ELEVENLABS_API_URL}/text-to-speech/${voiceId}`, {
         method: 'POST',
         headers: {
@@ -171,7 +159,10 @@ export function FaceTimeInterface({
         })
       });
 
-      if (!response.ok) return false;
+      if (!response.ok) {
+        console.warn('ElevenLabs failed:', response.statusText);
+        return false;
+      }
 
       const audioBlob = await response.blob();
       const audioUrl = URL.createObjectURL(audioBlob);
@@ -197,29 +188,30 @@ export function FaceTimeInterface({
 
         audioRef.current.play().catch(() => resolve(false));
       });
-    } catch {
+    } catch (error) {
+      console.warn('ElevenLabs error:', error);
       return false;
     }
   };
 
-  const speakAndDisplay = async (text: string, history: Message[]) => {
+  const speakAndDisplay = async (text: string) => {
     setIsPersonaSpeaking(true);
     setPersonaMessage(text);
+    isProcessingRef.current = true;
 
-    // Stop listening while persona speaks
     stopListening();
 
     try {
       if (isSpeakerOn) {
-        // Try ElevenLabs cloned voice first
-        const voiceId = personaData?.voice_model_id;
+        const voiceId = getVoiceId();
         let spoke = false;
 
-        if (ELEVENLABS_API_KEY && voiceId && !voiceId.startsWith('voice_')) {
+        if (ELEVENLABS_API_KEY && voiceId) {
           spoke = await speakWithElevenLabs(text, voiceId);
+        } else {
+          console.warn('No valid voice ID found, falling back to browser TTS');
         }
 
-        // Fallback to browser TTS
         if (!spoke) {
           await new Promise<void>((resolve) => {
             const utterance = new SpeechSynthesisUtterance(text);
@@ -232,7 +224,6 @@ export function FaceTimeInterface({
           });
         }
       } else {
-        // Speaker off — just wait a beat for the message to show
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
     } catch (error) {
@@ -241,9 +232,22 @@ export function FaceTimeInterface({
       setIsPersonaSpeaking(false);
       setPersonaMessage('');
       isProcessingRef.current = false;
-
-      // Resume listening after persona finishes speaking
       setTimeout(() => startListening(), 500);
+    }
+  };
+
+  const playGreeting = async (persona: any) => {
+    try {
+      const greeting = await memoryConversationEngine.generateMemoryEnhancedResponse(
+        personaId,
+        '__greeting__',
+        []
+      );
+      await speakAndDisplay(greeting);
+    } catch (error) {
+      await speakAndDisplay(
+        `Oh, it's so good to see your face. I've been thinking about you.`
+      );
     }
   };
 
@@ -254,7 +258,6 @@ export function FaceTimeInterface({
     setCurrentTranscript('');
     stopListening();
 
-    // Save user message
     if (conversationIdRef.current) {
       await supabase.from('messages').insert({
         conversation_id: conversationIdRef.current,
@@ -285,7 +288,6 @@ export function FaceTimeInterface({
 
       setConversationHistory(newHistory);
 
-      // Save persona message
       if (conversationIdRef.current) {
         await supabase.from('messages').insert({
           conversation_id: conversationIdRef.current,
@@ -295,24 +297,28 @@ export function FaceTimeInterface({
         });
       }
 
-      await speakAndDisplay(response, newHistory);
+      await speakAndDisplay(response);
 
     } catch (error) {
-      console.error('Response generation error:', error);
+      console.error('Response error:', error);
       isProcessingRef.current = false;
       startListening();
     }
   };
 
   const startListening = () => {
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+    if (isProcessingRef.current) return;
+
+    const SpeechRecognition =
+      (window as any).webkitSpeechRecognition ||
+      (window as any).SpeechRecognition;
+
+    if (!SpeechRecognition) {
       toast.error('Speech recognition not supported. Use Chrome or Edge.');
       return;
     }
 
-    const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
     const recognition = new SpeechRecognition();
-
     recognition.continuous = false;
     recognition.interimResults = true;
     recognition.lang = 'en-US';
@@ -324,11 +330,11 @@ export function FaceTimeInterface({
       let final = '';
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
+        const t = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          final += transcript;
+          final += t;
         } else {
-          interim += transcript;
+          interim += t;
         }
       }
 
@@ -342,14 +348,12 @@ export function FaceTimeInterface({
 
     recognition.onerror = (event: any) => {
       if (event.error !== 'no-speech' && event.error !== 'aborted') {
-        console.error('Speech recognition error:', event.error);
+        console.error('Speech error:', event.error);
       }
       setIsListening(false);
     };
 
-    recognition.onend = () => {
-      setIsListening(false);
-    };
+    recognition.onend = () => setIsListening(false);
 
     recognitionRef.current = recognition;
 
@@ -362,9 +366,7 @@ export function FaceTimeInterface({
 
   const stopListening = () => {
     if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch {}
+      try { recognitionRef.current.stop(); } catch {}
     }
     setIsListening(false);
   };
@@ -416,7 +418,7 @@ export function FaceTimeInterface({
     <div className="h-screen bg-black flex flex-col">
 
       {/* Header */}
-      <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/70 to-transparent px-6 pt-safe pt-6 pb-8">
+      <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/70 to-transparent px-6 pt-6 pb-8">
         <div className="flex items-center justify-between text-white">
           <div>
             <h2 className="text-xl font-semibold">{personaName}</h2>
@@ -433,10 +435,14 @@ export function FaceTimeInterface({
               </span>
             </div>
           </div>
+          {/* Voice ID debug — remove before going live */}
+          <div className="text-xs text-white/30">
+            {getVoiceId() ? '🎤 Cloned voice' : '⚠️ No voice ID'}
+          </div>
         </div>
       </div>
 
-      {/* Main photo area — full screen */}
+      {/* Main photo area */}
       <div className="flex-1 relative">
         {avatarUrl ? (
           <img
@@ -457,7 +463,7 @@ export function FaceTimeInterface({
           </div>
         )}
 
-        {/* Dark overlay for readability */}
+        {/* Dark overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
 
         {/* Persona speaking bubble */}
@@ -480,8 +486,8 @@ export function FaceTimeInterface({
 
         {/* User transcript bubble */}
         {currentTranscript && !isPersonaSpeaking && (
-          <div className="absolute bottom-32 left-4 right-4">
-            <div className="bg-purple-600/80 backdrop-blur-md rounded-3xl px-6 py-4 max-w-lg mx-auto ml-auto">
+          <div className="absolute bottom-32 left-4 right-4 flex justify-end">
+            <div className="bg-purple-600/80 backdrop-blur-md rounded-3xl px-6 py-4 max-w-sm">
               <div className="flex items-center gap-2 mb-1">
                 <Mic className="h-3 w-3 text-white/70 animate-pulse" />
                 <span className="text-xs text-white/70">You</span>
@@ -493,10 +499,10 @@ export function FaceTimeInterface({
       </div>
 
       {/* Bottom controls */}
-      <div className="absolute bottom-0 left-0 right-0 z-20 bg-gradient-to-t from-black/90 to-transparent pb-safe pb-10 pt-16">
+      <div className="absolute bottom-0 left-0 right-0 z-20 bg-gradient-to-t from-black/90 to-transparent pb-10 pt-16">
         <div className="flex items-center justify-center gap-10 px-8">
 
-          {/* Mic button */}
+          {/* Mic */}
           <button
             onClick={toggleMic}
             disabled={isPersonaSpeaking}
@@ -520,7 +526,7 @@ export function FaceTimeInterface({
             <Phone className="h-8 w-8 text-white rotate-[135deg]" />
           </button>
 
-          {/* Speaker toggle */}
+          {/* Speaker */}
           <button
             onClick={() => setIsSpeakerOn(!isSpeakerOn)}
             className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-200 shadow-xl ${
