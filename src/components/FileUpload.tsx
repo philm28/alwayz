@@ -1,6 +1,6 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, File, Video, Music, Image, FileText, X, CheckCircle, AlertCircle, Mic } from 'lucide-react';
+import { Upload, File, Video, Music, Image, FileText, X, CheckCircle, AlertCircle, Mic, Heart } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 import { VoiceRecorder } from './VoiceRecorder';
@@ -27,6 +27,7 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
   const [bucketError, setBucketError] = useState<string | null>(null);
   const [bucketChecked, setBucketChecked] = useState(false);
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
+  const [activeTab, setActiveTab] = useState<'voice' | 'memories'>('voice');
 
   useEffect(() => {
     checkAndCreateBucket();
@@ -58,19 +59,15 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
   const checkAndCreateBucket = async (): Promise<boolean> => {
     try {
       setBucketChecked(false);
-      
-      // Check if bucket exists by attempting to list files (read-only operation)
       const { error: listError } = await supabase.storage
         .from('persona-content')
         .list('', { limit: 1 });
 
       if (listError) {
-        console.error('Storage bucket error:', listError);
-        
         if (listError.message.includes('not found') || listError.message.includes('does not exist')) {
-          setBucketError('Storage bucket "persona-content" not found. Please create it manually in your Supabase dashboard under Storage > New Bucket with a 50MB file size limit.');
+          setBucketError('Storage bucket "persona-content" not found. Please create it in your Supabase dashboard.');
         } else if (listError.message.includes('permission denied') || listError.message.includes('row-level security')) {
-          setBucketError('Storage bucket permissions not configured. Please run the RLS policy setup SQL in your Supabase dashboard.');
+          setBucketError('Storage bucket permissions not configured. Please run the RLS policy setup SQL.');
         } else {
           setBucketError(`Storage configuration error: ${listError.message}`);
         }
@@ -82,7 +79,6 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
       setBucketChecked(true);
       return true;
     } catch (error) {
-      console.error('Bucket check error:', error);
       setBucketError('Storage configuration error. Please check your Supabase setup.');
       setBucketChecked(true);
       return false;
@@ -105,38 +101,25 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
 
     try {
       if (file.size > 50 * 1024 * 1024) {
-        throw new Error('File size exceeds 50MB limit. Please choose a smaller file.');
+        throw new Error('File size exceeds 50MB limit.');
       }
 
       if (!personaId || !isValidUUID(personaId)) {
-        throw new Error('No valid persona selected. Please select a persona first.');
+        throw new Error('No valid persona selected.');
       }
 
       const bucketReady = await checkAndCreateBucket();
-      if (!bucketReady) {
-        throw new Error('Storage bucket not available');
-      }
+      if (!bucketReady) throw new Error('Storage bucket not available');
 
-      console.log('Uploading file:', file.name, 'to path:', filePath);
-
-      // Update progress to 10% when starting upload
       setUploadedFiles(prev => prev.map(f =>
         f.id === fileId ? { ...f, progress: 10 } : f
       ));
 
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('persona-content')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: true
-        });
+        .upload(filePath, file, { cacheControl: '3600', upsert: true });
 
-      if (uploadError) {
-        console.error('Upload error details:', uploadError);
-        throw new Error(`Upload failed: ${uploadError.message}`);
-      }
-
-      console.log('Upload successful:', uploadData);
+      if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
 
       const { data: { publicUrl } } = supabase.storage
         .from('persona-content')
@@ -146,143 +129,117 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
       uploadedFile.status = 'processing';
       uploadedFile.progress = 50;
 
-      // Update progress to 50% after upload completes
       setUploadedFiles(prev => prev.map(f =>
         f.id === fileId ? { ...f, progress: 50, status: 'processing', url: publicUrl } : f
       ));
 
-      // Generate text content for all files
       let extractedText = '';
-      
-      if (file.type === 'text/plain' || file.type === 'text/markdown' || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
-        // Extract actual text content from text files
+      if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
         try {
           extractedText = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = (e) => resolve(e.target?.result as string || '');
-            reader.onerror = () => reject(new Error('Failed to read file content'));
+            reader.onerror = () => reject(new Error('Failed to read file'));
             reader.readAsText(file);
           });
-          console.log('Extracted text content:', extractedText.substring(0, 100) + '...');
-        } catch (error) {
-          console.warn('Failed to extract text content:', error);
-          extractedText = `This is a text document titled "${file.name}" containing written content that reflects the persona's thoughts, knowledge, and communication style. The document provides insights into their personality, experiences, and way of expressing ideas through written words.`;
+        } catch {
+          extractedText = `Text document: ${file.name}`;
         }
+      } else if (file.type.startsWith('audio/')) {
+        extractedText = `Voice recording: ${file.name}. This audio captures the person's voice, speech patterns, tone, and natural way of speaking.`;
+      } else if (file.type.startsWith('video/')) {
+        extractedText = `Video recording: ${file.name}. This video captures the person speaking, their mannerisms, expressions, and natural communication style.`;
+      } else if (file.type.startsWith('image/')) {
+        extractedText = `Photo: ${file.name}. This image shows the person and provides visual context about their appearance and personality.`;
       } else {
-        // Generate descriptive text for non-text files
-        const fileType = file.type.split('/')[0]; // Get main type (image, video, audio, etc.)
-        const fileExtension = file.name.split('.').pop()?.toUpperCase() || 'FILE';
-        
-        if (fileType === 'image') {
-          extractedText = `This is a photograph showing the persona in their natural environment. The image captures their physical appearance, facial expressions, and personal style. It reveals their way of presenting themselves, their fashion choices, and emotional expressions. The photo provides visual context for understanding their personality, showing how they interact with their surroundings and express themselves through body language and facial expressions. This visual content helps understand their aesthetic preferences, social interactions, and the environments they were comfortable in.`;
-        } else if (fileType === 'video') {
-          extractedText = `This is a video recording of the persona speaking and moving naturally. The video captures their voice tone, speech patterns, pronunciation, and conversational rhythm. It shows their facial expressions while speaking, hand gestures, body language, and overall mannerisms. The recording reveals their natural speaking style, emotional expressions, and behavioral patterns. This content demonstrates how they communicate, their personality through movement and speech, their comfort level on camera, and their authentic way of expressing thoughts and emotions. The video provides crucial insights into their communication style, emotional range, and personal mannerisms.`;
-        } else if (fileType === 'audio') {
-          extractedText = `This is an audio recording of the persona's voice and speech patterns. The recording captures their unique vocal characteristics including tone, pitch, speaking rhythm, and pronunciation. It reveals their conversational style, emotional expression through voice, and natural speech patterns. The audio demonstrates their way of articulating thoughts, their emotional range in speech, pauses and emphasis patterns, and overall vocal personality. This content provides essential voice characteristics for understanding their communication style, emotional expression, and authentic speaking patterns.`;
-        } else if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
-          extractedText = `This is a PDF document containing written content that reflects the persona's thoughts, knowledge, and written communication style. The document reveals their way of organizing ideas, their vocabulary, writing style, and areas of expertise or interest. It provides insights into their intellectual approach, formal communication patterns, and the topics they found important enough to document. This written content helps understand their thought processes, knowledge base, and professional or personal writing style.`;
-        } else if (file.type.includes('document') || file.name.match(/\.(doc|docx)$/i)) {
-          extractedText = `This is a document containing the persona's written thoughts and communications. The content shows their writing style, vocabulary choices, and way of expressing ideas in written form. It reveals their communication patterns, areas of knowledge or interest, and personal or professional writing approach. The document provides insights into their thought organization, formal communication style, and the subjects they considered important to write about.`;
-        } else {
-          extractedText = `This file contains content related to the persona's interests, knowledge, or personal materials. It represents part of their digital footprint and personal collection, providing context about their interests, activities, or important information they chose to preserve. This content contributes to understanding their personality, preferences, and the types of information or media they valued.`;
-        }
+        extractedText = `Document: ${file.name}. This file contains content related to the person's life and interests.`;
       }
-      
 
-      const dbPayload = {
-        persona_id: personaId,
-        content_type: getContentType(file.type),
-        file_url: publicUrl,
-        file_name: file.name,
-        file_size: file.size,
-        content_text: extractedText,
-        metadata: {
-          original_name: file.name,
-          mime_type: file.type,
-          upload_date: new Date().toISOString(),
-          has_text_content: extractedText.length > 0
-        },
-        processing_status: 'processing'
-      };
-
-      console.log('Saving to database with payload:', dbPayload);
-
-      const { data: dbData, error: dbError } = await supabase
+      const { error: dbError } = await supabase
         .from('persona_content')
-        .insert(dbPayload)
-        .select();
-
-      if (dbError) {
-        console.error('Database error details:', {
-          error: dbError,
-          message: dbError.message,
-          details: dbError.details,
-          hint: dbError.hint,
-          code: dbError.code,
-          payload: dbPayload
+        .insert({
+          persona_id: personaId,
+          content_type: getContentType(file.type),
+          file_url: publicUrl,
+          file_name: file.name,
+          file_size: file.size,
+          content_text: extractedText,
+          metadata: {
+            original_name: file.name,
+            mime_type: file.type,
+            upload_date: new Date().toISOString()
+          },
+          processing_status: 'processing'
         });
-        
-        let errorMessage = 'Database save failed';
-        if (dbError.message) {
-          errorMessage += `: ${dbError.message}`;
-        } else if (dbError.details) {
-          errorMessage += `: ${dbError.details}`;
-        } else if (dbError.hint) {
-          errorMessage += `: ${dbError.hint}`;
-        } else {
-          errorMessage += ': Unknown database error';
-        }
-        
-        if (dbError.code === 'PGRST116') {
-          errorMessage += ' (No rows returned - check RLS policies)';
-        } else if (dbError.code === '23503') {
-          errorMessage += ' (Foreign key violation - persona not found)';
-        } else if (dbError.code === '42501') {
-          errorMessage += ' (Permission denied - check RLS policies)';
-        }
-        
-        throw new Error(errorMessage);
-      }
 
-      console.log('Database save successful:', dbData);
+      if (dbError) throw new Error(`Database save failed: ${dbError.message}`);
 
       uploadedFile.status = 'completed';
       uploadedFile.progress = 100;
 
-      // Update progress to 100% when completed
       setUploadedFiles(prev => prev.map(f =>
         f.id === fileId ? { ...f, progress: 100, status: 'completed' } : f
       ));
 
       return uploadedFile;
     } catch (error) {
-      console.error('Upload error:', error);
       uploadedFile.status = 'error';
       uploadedFile.progress = 0;
       uploadedFile.error = error instanceof Error ? error.message : 'Upload failed';
-      
       toast.error(`Upload failed: ${uploadedFile.error}`);
       return uploadedFile;
     }
   };
 
-  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+  const processVoiceCloning = async (audioFiles: File[]) => {
+    if (audioFiles.length === 0) return;
+
+    try {
+      const { VoiceCloning } = await import('../lib/voiceCloning');
+      const voiceCloning = new VoiceCloning();
+
+      console.log(`Starting voice cloning with ${audioFiles.length} samples`);
+      const voiceProfile = await voiceCloning.createVoiceProfile(personaId, audioFiles);
+
+      if (voiceProfile.voiceModelId && !voiceProfile.voiceModelId.startsWith('voice_')) {
+        await supabase
+          .from('personas')
+          .update({ voice_model_id: voiceProfile.voiceModelId })
+          .eq('id', personaId);
+
+        console.log('✅ Voice cloned and saved:', voiceProfile.voiceModelId);
+
+        if (audioFiles.length >= 3) {
+          toast.success(`Voice cloned successfully with ${audioFiles.length} samples!`);
+        } else {
+          toast.success(`${audioFiles.length} voice sample${audioFiles.length > 1 ? 's' : ''} uploaded. Add ${3 - audioFiles.length} more for best results.`);
+        }
+      }
+    } catch (error) {
+      console.error('Voice cloning error:', error);
+      if (error instanceof Error) {
+        if (error.message.includes('ELEVENLABS_VALIDATION_ERROR')) {
+          toast.error('Audio too short. Please upload at least 1 minute of audio total.', { duration: 6000 });
+        } else {
+          toast.error('Voice cloning failed. Will use standard voices instead.', { duration: 5000 });
+        }
+      }
+    }
+  };
+
+  const onDrop = useCallback(async (acceptedFiles: File[], isVoice = false) => {
     if (!isPersonaIdValid) {
       toast.error('Please select a persona before uploading files');
       return;
     }
 
-    if (!bucketChecked) {
-      await checkAndCreateBucket();
-    }
-    
+    if (!bucketChecked) await checkAndCreateBucket();
+
     setIsUploading(true);
-    
-    // Filter out files that are too large
+
     const validFiles = acceptedFiles.filter(file => {
       if (file.size > 50 * 1024 * 1024) {
-        console.warn(`File ${file.name} is too large (${formatFileSize(file.size)}). Maximum size is 50MB.`);
-        toast.error(`File ${file.name} is too large. Maximum size is 50MB.`);
+        toast.error(`${file.name} is too large. Maximum size is 50MB.`);
         return false;
       }
       return true;
@@ -292,9 +249,9 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
       setIsUploading(false);
       return;
     }
-    
+
     const newFiles: UploadedFile[] = validFiles.map(file => ({
-      id: `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`,
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`,
       name: file.name,
       size: file.size,
       type: file.type,
@@ -306,95 +263,63 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
     setUploadedFiles(prev => [...prev, ...newFiles]);
 
     try {
-      const uploadPromises = validFiles.map(async (file, index) => {
-        const uploadedFile = newFiles[index];
-        const result = await uploadFile(file, uploadedFile.id);
+      const results = await Promise.all(
+        validFiles.map(async (file, index) => {
+          const result = await uploadFile(file, newFiles[index].id);
+          setUploadedFiles(prev => prev.map(f => f.id === result.id ? result : f));
+          return result;
+        })
+      );
 
-        // Update the UI immediately after each upload completes
-        setUploadedFiles(prev => prev.map(f =>
-          f.id === result.id ? result : f
-        ));
+      // Handle voice cloning for audio/video files
+      const voiceFiles = validFiles.filter(f =>
+        f.type.startsWith('audio/') || f.type.startsWith('video/')
+      );
 
-        return result;
-      });
-
-      const results = await Promise.all(uploadPromises);
-
-      console.log('Upload results:', results.map(r => ({ id: r.id, name: r.name, status: r.status })));
-
-      // Process voice cloning for all audio files in batch
-      const audioFiles = validFiles.filter(file => file.type.startsWith('audio/'));
-      console.log('Audio files found:', audioFiles.length, 'Total files:', validFiles.length);
-      console.log('File types:', validFiles.map(f => f.type));
-
-      if (audioFiles.length > 0) {
-        try {
-          const { VoiceCloning } = await import('../lib/voiceCloning');
-          const voiceCloning = new VoiceCloning();
-
-          console.log(`✅ STARTING voice cloning with ${audioFiles.length} audio samples for persona ${personaId}`);
-          const voiceProfile = await voiceCloning.createVoiceProfile(personaId, audioFiles);
-          console.log('✅ Voice profile created:', voiceProfile);
-
-          if (voiceProfile.voiceModelId) {
-            await supabase
-              .from('personas')
-              .update({ voice_model_id: voiceProfile.voiceModelId })
-              .eq('id', personaId);
-
-            console.log('Voice model linked to persona:', voiceProfile.voiceModelId);
-
-            if (audioFiles.length >= 3) {
-              toast.success(`Voice cloned successfully with ${audioFiles.length} samples!`);
-            } else {
-              toast.success(`Voice samples uploaded! Upload ${3 - audioFiles.length} more for full voice cloning.`);
-            }
-          }
-        } catch (voiceError) {
-          console.error('❌ Voice cloning error details:', {
-            error: voiceError,
-            message: voiceError instanceof Error ? voiceError.message : 'Unknown error',
-            stack: voiceError instanceof Error ? voiceError.stack : undefined
-          });
-
-          if (voiceError instanceof Error) {
-            if (voiceError.message.startsWith('ELEVENLABS_PERMISSIONS_ERROR')) {
-              toast.error('Your ElevenLabs API key lacks voice cloning permissions. Please upgrade your ElevenLabs plan or the app will use OpenAI voices.', { duration: 8000 });
-            } else if (voiceError.message.startsWith('ELEVENLABS_AUTH_ERROR')) {
-              toast.error('ElevenLabs authentication failed. Check your API key or use OpenAI voices.', { duration: 6000 });
-            } else if (voiceError.message.startsWith('ELEVENLABS_VALIDATION_ERROR')) {
-              toast.error('Audio files must be at least 1 minute total. Please upload longer samples.', { duration: 6000 });
-            } else {
-              const errorMsg = voiceError.message;
-              toast.error(`Voice cloning failed: ${errorMsg}. Will use OpenAI voices instead.`, { duration: 6000 });
-            }
-          } else {
-            toast.error('Voice cloning unavailable. Will use OpenAI voices instead.', { duration: 5000 });
-          }
-        }
+      if (voiceFiles.length > 0) {
+        await processVoiceCloning(voiceFiles);
       }
 
       onUploadComplete?.(results.filter(r => r.status === 'completed'));
     } catch (error) {
-      console.error('Batch upload error:', error);
+      console.error('Upload error:', error);
       toast.error('Some files failed to upload. Please try again.');
     } finally {
       setIsUploading(false);
     }
   }, [personaId, onUploadComplete, bucketChecked, isPersonaIdValid]);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+  // Voice-specific dropzone
+  const {
+    getRootProps: getVoiceRootProps,
+    getInputProps: getVoiceInputProps,
+    isDragActive: isVoiceDragActive
+  } = useDropzone({
+    onDrop: (files) => onDrop(files, true),
+    accept: {
+      'audio/*': ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.webm'],
+      'video/*': ['.mp4', '.mov', '.avi', '.mkv', '.m4v']
+    },
+    maxSize: 50 * 1024 * 1024,
+    multiple: true,
+    disabled: !!bucketError || !isPersonaIdValid
+  });
+
+  // General content dropzone
+  const {
+    getRootProps: getGeneralRootProps,
+    getInputProps: getGeneralInputProps,
+    isDragActive: isGeneralDragActive
+  } = useDropzone({
     onDrop,
     accept: {
       'image/*': ['.jpg', '.jpeg', '.png', '.gif'],
-      'video/*': ['.mp4', '.mov', '.avi', '.mkv'],
-      'audio/*': ['.mp3', '.wav', '.m4a', '.aac'],
       'text/*': ['.txt', '.md'],
       'application/pdf': ['.pdf'],
       'application/msword': ['.doc'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx']
     },
-    maxSize: 50 * 1024 * 1024, // 50MB
+    maxSize: 50 * 1024 * 1024,
     multiple: true,
     disabled: !!bucketError || !isPersonaIdValid
   });
@@ -413,14 +338,11 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
 
   const handleVoiceRecordingsComplete = async (recordings: File[]) => {
     setShowVoiceRecorder(false);
-
     if (!isPersonaIdValid) {
       toast.error('Please select a persona before uploading voice samples');
       return;
     }
-
-    await onDrop(recordings);
-    toast.success('Voice samples uploaded successfully! Your voice clone is being created.');
+    await onDrop(recordings, true);
   };
 
   if (showVoiceRecorder) {
@@ -434,62 +356,133 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
 
   return (
     <div className="space-y-6">
-      {/* Persona Selection Error Alert */}
-      {!isPersonaIdValid && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <div className="flex items-start">
-            <AlertCircle className="h-5 w-5 text-yellow-500 mt-0.5 mr-3 flex-shrink-0" />
-            <div>
-              <h4 className="text-yellow-800 font-medium">No Persona Selected</h4>
-              <p className="text-yellow-700 text-sm mt-1">
-                Please select a persona from your dashboard before uploading content.
-                Content must be associated with a specific persona for training.
-              </p>
+
+      {/* Tab switcher */}
+      <div className="flex gap-2 p-1 bg-gray-100 rounded-xl">
+        <button
+          onClick={() => setActiveTab('voice')}
+          className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all ${
+            activeTab === 'voice'
+              ? 'bg-white shadow text-gray-900'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          🎤 Voice Samples
+        </button>
+        <button
+          onClick={() => setActiveTab('memories')}
+          className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-semibold transition-all ${
+            activeTab === 'memories'
+              ? 'bg-white shadow text-gray-900'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          ❤️ Photos & Memories
+        </button>
+      </div>
+
+      {/* VOICE TAB */}
+      {activeTab === 'voice' && (
+        <div className="space-y-4">
+          <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
+            <p className="text-sm text-blue-800 leading-relaxed">
+              <strong>The more audio the better.</strong> Upload voicemails, video clips, home videos,
+              phone recordings — anything with their voice. Even 30 seconds helps.
+              3+ minutes gives the best clone quality.
+            </p>
+          </div>
+
+          {/* Upload existing audio/video */}
+          <div
+            {...getVoiceRootProps()}
+            className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all duration-300 ${
+              isVoiceDragActive
+                ? 'border-blue-500 bg-blue-50'
+                : 'border-blue-200 hover:border-blue-400 hover:bg-blue-50/50'
+            }`}
+          >
+            <input {...getVoiceInputProps()} />
+            <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Music className="h-8 w-8 text-white" />
             </div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              Upload Voice Recordings
+            </h3>
+            <p className="text-gray-600 mb-2">
+              Drag voicemails, videos, or audio files here
+            </p>
+            <p className="text-sm text-gray-400">
+              MP3, WAV, M4A, MP4, MOV — up to 50MB each
+            </p>
+          </div>
+
+          {/* Divider */}
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-px bg-gray-200" />
+            <span className="text-sm text-gray-400">or record live</span>
+            <div className="flex-1 h-px bg-gray-200" />
+          </div>
+
+          {/* Record live */}
+          <button
+            onClick={() => setShowVoiceRecorder(true)}
+            disabled={!isPersonaIdValid || !!bucketError}
+            className="w-full py-4 border-2 border-dashed border-gray-300 rounded-2xl hover:border-purple-400 hover:bg-purple-50/50 transition-all duration-300 flex flex-col items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
+              <Mic className="h-6 w-6 text-white" />
+            </div>
+            <span className="font-semibold text-gray-900">Record Voice Now</span>
+            <span className="text-sm text-gray-500">3 guided scripts, takes 2-3 minutes</span>
+          </button>
+        </div>
+      )}
+
+      {/* MEMORIES TAB */}
+      {activeTab === 'memories' && (
+        <div className="space-y-4">
+          <div className="bg-pink-50 rounded-xl p-4 border border-pink-100">
+            <p className="text-sm text-pink-800 leading-relaxed">
+              <strong>Upload photos and documents.</strong> Photos help us show their face
+              during conversations. Documents, letters, and notes help the AI understand
+              who they were.
+            </p>
+          </div>
+
+          <div
+            {...getGeneralRootProps()}
+            className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all duration-300 ${
+              isGeneralDragActive
+                ? 'border-pink-500 bg-pink-50'
+                : 'border-pink-200 hover:border-pink-400 hover:bg-pink-50/50'
+            }`}
+          >
+            <input {...getGeneralInputProps()} />
+            <div className="w-16 h-16 bg-gradient-to-br from-pink-500 to-rose-500 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Heart className="h-8 w-8 text-white" fill="currentColor" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              Upload Photos & Documents
+            </h3>
+            <p className="text-gray-600 mb-2">
+              Photos, letters, notes, documents
+            </p>
+            <p className="text-sm text-gray-400">
+              JPG, PNG, PDF, DOC, TXT — up to 50MB each
+            </p>
           </div>
         </div>
       )}
 
-      {/* Storage Error Alert */}
+      {/* Storage error */}
       {bucketError && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex items-start">
-            <AlertCircle className="h-5 w-5 text-red-500 mt-0.5 mr-3 flex-shrink-0" />
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-red-500 mt-0.5 flex-shrink-0" />
             <div>
               <h4 className="text-red-800 font-medium">Storage Configuration Required</h4>
               <p className="text-red-700 text-sm mt-1">{bucketError}</p>
-              <div className="mt-3 text-sm text-red-700">
-                <p className="font-medium">To fix this:</p>
-                <ol className="list-decimal list-inside mt-1 space-y-1">
-                  <li>Go to your <a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer" className="underline">Supabase Dashboard</a></li>
-                  <li>Navigate to Storage → New Bucket</li>
-                  <li>Create a bucket named "persona-content"</li>
-                  <li>Set it to Private</li>
-                  <li>Set file size limit to 50MB</li>
-                  <li>Add RLS policies (see below)</li>
-                  <li>Refresh this page</li>
-                </ol>
-                <div className="mt-2 p-2 bg-red-100 rounded text-xs">
-                  <p className="font-medium mb-1">Required RLS Policies:</p>
-                  <p className="mb-1">1. For INSERT (create):</p>
-                  <pre className="whitespace-pre-wrap break-words bg-white p-1 rounded">
-                    CREATE POLICY "Users can upload files"
-                    ON storage.objects
-                    FOR INSERT
-                    TO authenticated
-                    WITH CHECK (bucket_id = 'persona-content');
-                  </pre>
-                  <p className="mt-2 mb-1">2. For SELECT (read):</p>
-                  <pre className="whitespace-pre-wrap break-words bg-white p-1 rounded">
-                    CREATE POLICY "Users can read files"
-                    ON storage.objects
-                    FOR SELECT
-                    TO authenticated
-                    USING (bucket_id = 'persona-content');
-                  </pre>
-                </div>
-              </div>
-              <button 
+              <button
                 onClick={checkAndCreateBucket}
                 className="mt-3 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
               >
@@ -500,124 +493,43 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
         </div>
       )}
 
-      {/* Voice Recording Option */}
-      {!bucketError && isPersonaIdValid && (
-        <div className="bg-gradient-to-r from-blue-50 to-cyan-50 rounded-2xl p-6 border-2 border-blue-200">
-          <div className="flex items-start gap-4">
-            <div className="w-12 h-12 bg-gradient-to-r from-blue-600 to-cyan-600 rounded-full flex items-center justify-center flex-shrink-0">
-              <Mic className="h-6 w-6 text-white" />
-            </div>
-            <div className="flex-1">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                Record Voice Samples for Voice Cloning
-              </h3>
-              <p className="text-gray-600 mb-4">
-                Create a high-quality voice clone by recording 3 short voice samples using optimized scripts.
-                This takes just 2-3 minutes and produces professional results with ElevenLabs.
-              </p>
-              <button
-                onClick={() => setShowVoiceRecorder(true)}
-                className="bg-gradient-to-r from-blue-600 to-cyan-600 text-white px-6 py-3 rounded-lg font-semibold hover:shadow-lg transition-all duration-300 flex items-center gap-2"
-              >
-                <Mic className="h-5 w-5" />
-                Start Voice Recording
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Upload Area */}
-      <div
-        {...getRootProps()}
-        className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all duration-300 ${
-          bucketError || !isPersonaIdValid
-            ? 'border-gray-200 bg-gray-50 cursor-not-allowed opacity-50'
-            : isDragActive
-            ? 'border-purple-500 bg-purple-50'
-            : 'border-gray-300 hover:border-purple-400 hover:bg-gray-50'
-        }`}
-      >
-        <input {...getInputProps()} />
-        <Upload className={`h-12 w-12 mx-auto mb-4 ${bucketError || !isPersonaIdValid ? 'text-gray-300' : 'text-gray-400'}`} />
-        <h3 className={`text-lg font-semibold mb-2 ${bucketError || !isPersonaIdValid ? 'text-gray-400' : 'text-gray-900'}`}>
-          {bucketError
-            ? 'Storage setup required'
-            : !isPersonaIdValid
-            ? 'Persona selection required'
-            : isDragActive
-            ? 'Drop files here'
-            : 'Upload memories and content'
-          }
-        </h3>
-        <p className={`mb-4 ${bucketError || !isPersonaIdValid ? 'text-gray-400' : 'text-gray-600'}`}>
-          {bucketError
-            ? 'Please configure storage bucket first'
-            : !isPersonaIdValid
-            ? 'Please select a persona first'
-            : 'Drag and drop files here, or click to browse'
-          }
-        </p>
-        {!bucketError && isPersonaIdValid && (
-          <div className="text-sm text-gray-500">
-            <p>Supported formats: Videos (MP4, MOV), Audio (MP3, WAV), Images (JPG, PNG), Documents (PDF, DOC, TXT)</p>
-            <p>Maximum file size: 50MB</p>
-          </div>
-        )}
-      </div>
-
-      {/* Uploaded Files List */}
+      {/* Uploaded files list */}
       {uploadedFiles.length > 0 && (
         <div className="space-y-3">
-          <h4 className="text-lg font-semibold text-gray-900">Uploaded Content</h4>
+          <h4 className="text-sm font-semibold text-gray-700">
+            Uploaded ({uploadedFiles.filter(f => f.status === 'completed').length} of {uploadedFiles.length} complete)
+          </h4>
           {uploadedFiles.map((file) => {
             const IconComponent = getFileIcon(file.type);
             return (
-              <div key={file.id} className="bg-white border border-gray-200 rounded-lg p-4">
+              <div key={file.id} className="bg-white border border-gray-200 rounded-xl p-4">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
+                  <div className="flex items-center gap-3">
                     <div className="p-2 bg-gray-100 rounded-lg">
                       <IconComponent className="h-5 w-5 text-gray-600" />
                     </div>
                     <div>
-                      <p className="font-medium text-gray-900">{file.name}</p>
-                      <p className="text-sm text-gray-500">{formatFileSize(file.size)}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">Status: {file.status} | Progress: {file.progress}%</p>
+                      <p className="font-medium text-gray-900 text-sm">{file.name}</p>
+                      <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
                       {file.error && (
-                        <p className="text-sm text-red-600 mt-1 font-semibold">{file.error}</p>
+                        <p className="text-xs text-red-600 mt-0.5">{file.error}</p>
                       )}
                     </div>
                   </div>
-                  
-                  <div className="flex items-center space-x-3">
+
+                  <div className="flex items-center gap-3">
                     {file.status === 'uploading' && (
-                      <div className="flex items-center space-x-2">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>
-                        <span className="text-sm text-gray-600">Uploading...</span>
-                      </div>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
                     )}
-                    
                     {file.status === 'processing' && (
-                      <div className="flex items-center space-x-2">
-                        <div className="animate-pulse h-4 w-4 bg-yellow-400 rounded-full"></div>
-                        <span className="text-sm text-yellow-600">Processing...</span>
-                      </div>
+                      <div className="animate-pulse h-4 w-4 bg-yellow-400 rounded-full" />
                     )}
-                    
                     {file.status === 'completed' && (
-                      <div className="flex items-center space-x-2">
-                        <CheckCircle className="h-4 w-4 text-green-500" />
-                        <span className="text-sm text-green-600">Complete</span>
-                      </div>
+                      <CheckCircle className="h-4 w-4 text-green-500" />
                     )}
-                    
                     {file.status === 'error' && (
-                      <div className="flex items-center space-x-2">
-                        <AlertCircle className="h-4 w-4 text-red-500" />
-                        <span className="text-sm text-red-600">Error</span>
-                      </div>
+                      <AlertCircle className="h-4 w-4 text-red-500" />
                     )}
-                    
                     <button
                       onClick={() => removeFile(file.id)}
                       className="p-1 hover:bg-gray-100 rounded-full transition-colors"
@@ -626,21 +538,23 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
                     </button>
                   </div>
                 </div>
-                
-                {/* Progress Bar */}
+
                 {(file.status === 'uploading' || file.status === 'processing') && (
-                  <div className="mt-3">
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div
-                        className="bg-purple-600 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${file.progress}%` }}
-                      ></div>
-                    </div>
+                  <div className="mt-3 w-full bg-gray-200 rounded-full h-1.5">
+                    <div
+                      className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
+                      style={{ width: `${file.progress}%` }}
+                    />
                   </div>
                 )}
               </div>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
         </div>
       )}
     </div>
