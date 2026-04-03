@@ -555,8 +555,3 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
     </div>
   );
 }
-        </div>
-      )}
-    </div>
-  );
-}
