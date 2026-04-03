@@ -36,13 +36,14 @@ export function FaceTimeInterface({
   const [personaData, setPersonaData] = useState<any>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(personaAvatar);
   const [audioWaveform, setAudioWaveform] = useState<number[]>([0, 0, 0, 0, 0]);
+  const [voiceStatus, setVoiceStatus] = useState<'loading' | 'cloned' | 'fallback'>('loading');
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const recognitionRef = useRef<any>(null);
   const conversationIdRef = useRef<string | null>(null);
   const callStartRef = useRef<number>(Date.now());
   const isProcessingRef = useRef(false);
-  const personaDataRef = useRef<any>(null); // ✅ ref so voice always has latest data
+  const personaDataRef = useRef<any>(null);
   const { user } = useAuth();
 
   useEffect(() => {
@@ -69,18 +70,48 @@ export function FaceTimeInterface({
 
   const initialize = async () => {
     try {
-      const { data: persona } = await supabase
-        .from('personas')
-        .select('*')
-        .eq('id', personaId)
-        .single();
+      // ✅ Retry fetching persona until we get a real voice ID
+      // Handles race condition where navigation happens before voice ID saves
+      let persona = null;
+      let attempts = 0;
+      const maxAttempts = 10;
+
+      while (attempts < maxAttempts) {
+        const { data } = await supabase
+          .from('personas')
+          .select('*')
+          .eq('id', personaId)
+          .single();
+
+        if (data) {
+          persona = data;
+          if (data.voice_model_id && !data.voice_model_id.startsWith('voice_')) {
+            console.log(`✅ Got real voice ID on attempt ${attempts + 1}:`, data.voice_model_id);
+            setVoiceStatus('cloned');
+            break;
+          } else {
+            console.log(`⏳ Attempt ${attempts + 1}: No real voice ID yet, retrying...`);
+          }
+        }
+
+        attempts++;
+        if (attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
 
       if (!persona) {
         toast.error('Failed to load persona');
         return;
       }
 
-      // ✅ Store in both state AND ref so voice calls always have it
+      // If after all retries we still don't have a real voice ID
+      if (!persona.voice_model_id || persona.voice_model_id.startsWith('voice_')) {
+        console.warn('No real voice ID found after retries, using fallback TTS');
+        setVoiceStatus('fallback');
+      }
+
+      // ✅ Store in both state AND ref
       setPersonaData(persona);
       personaDataRef.current = persona;
 
@@ -120,8 +151,8 @@ export function FaceTimeInterface({
         }
       }
 
-      // ✅ Pass persona directly — don't rely on state
-      setTimeout(() => playGreeting(persona), 1200);
+      // ✅ Pass persona directly — fresh from DB with real voice ID
+      setTimeout(() => playGreeting(persona), 500);
 
     } catch (error) {
       console.error('Initialization error:', error);
@@ -130,7 +161,6 @@ export function FaceTimeInterface({
   };
 
   const getVoiceId = (): string | null => {
-    // ✅ Always read from ref, never from state
     const persona = personaDataRef.current;
     if (!persona?.voice_model_id) return null;
     if (persona.voice_model_id.startsWith('voice_')) return null;
@@ -139,7 +169,7 @@ export function FaceTimeInterface({
 
   const speakWithElevenLabs = async (text: string, voiceId: string): Promise<boolean> => {
     try {
-      console.log(`✅ Speaking with ElevenLabs voice: ${voiceId}`);
+      console.log(`✅ Speaking with ElevenLabs cloned voice: ${voiceId}`);
 
       const response = await fetch(`${ELEVENLABS_API_URL}/text-to-speech/${voiceId}`, {
         method: 'POST',
@@ -160,7 +190,7 @@ export function FaceTimeInterface({
       });
 
       if (!response.ok) {
-        console.warn('ElevenLabs failed:', response.statusText);
+        console.warn('ElevenLabs failed:', response.status, response.statusText);
         return false;
       }
 
@@ -209,10 +239,12 @@ export function FaceTimeInterface({
         if (ELEVENLABS_API_KEY && voiceId) {
           spoke = await speakWithElevenLabs(text, voiceId);
         } else {
-          console.warn('No valid voice ID found, falling back to browser TTS');
+          console.warn(`No valid voice ID — voiceId: ${voiceId}, apiKey: ${ELEVENLABS_API_KEY ? 'set' : 'missing'}`);
         }
 
+        // Fallback to browser TTS
         if (!spoke) {
+          console.log('Falling back to browser TTS');
           await new Promise<void>((resolve) => {
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.rate = 0.92;
@@ -424,20 +456,24 @@ export function FaceTimeInterface({
             <h2 className="text-xl font-semibold">{personaName}</h2>
             <div className="flex items-center gap-2 mt-1">
               <div className={`w-2 h-2 rounded-full ${
+                voiceStatus === 'loading' ? 'bg-yellow-400 animate-pulse' :
                 isPersonaSpeaking ? 'bg-blue-400 animate-pulse' :
                 isListening ? 'bg-green-400 animate-pulse' :
                 'bg-white/40'
               }`} />
               <span className="text-sm text-white/70">
-                {isPersonaSpeaking ? 'Speaking...' :
+                {voiceStatus === 'loading' ? 'Connecting...' :
+                 isPersonaSpeaking ? 'Speaking...' :
                  isListening ? 'Listening...' :
                  formatDuration(callDuration)}
               </span>
             </div>
           </div>
-          {/* Voice ID debug — remove before going live */}
-          <div className="text-xs text-white/30">
-            {getVoiceId() ? '🎤 Cloned voice' : '⚠️ No voice ID'}
+          {/* Voice status indicator — remove before going live */}
+          <div className="text-xs text-white/40">
+            {voiceStatus === 'loading' ? '⏳ Loading voice...' :
+             voiceStatus === 'cloned' ? '🎤 Cloned voice' :
+             '⚠️ Standard voice'}
           </div>
         </div>
       </div>
@@ -465,6 +501,16 @@ export function FaceTimeInterface({
 
         {/* Dark overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
+
+        {/* Loading state */}
+        {voiceStatus === 'loading' && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="bg-black/60 backdrop-blur-md rounded-2xl px-8 py-6 text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-3" />
+              <p className="text-white text-sm">Connecting to {personaName}...</p>
+            </div>
+          </div>
+        )}
 
         {/* Persona speaking bubble */}
         {isPersonaSpeaking && personaMessage && (
@@ -505,7 +551,7 @@ export function FaceTimeInterface({
           {/* Mic */}
           <button
             onClick={toggleMic}
-            disabled={isPersonaSpeaking}
+            disabled={isPersonaSpeaking || voiceStatus === 'loading'}
             className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-200 shadow-xl ${
               isListening
                 ? 'bg-white ring-4 ring-green-400/60'
@@ -543,7 +589,8 @@ export function FaceTimeInterface({
         </div>
 
         <p className="text-center text-white/40 text-xs mt-4">
-          {isPersonaSpeaking ? `${personaName} is speaking...` :
+          {voiceStatus === 'loading' ? 'Loading...' :
+           isPersonaSpeaking ? `${personaName} is speaking...` :
            isListening ? 'Listening — speak naturally' :
            'Tap mic to speak'}
         </p>
