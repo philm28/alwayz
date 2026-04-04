@@ -16,6 +16,7 @@ import { MemoryViewer } from './components/MemoryViewer';
 import { initializeMonitoring, setUserContext } from './lib/monitoring';
 import { initializeAnalytics, trackPageView } from './lib/analytics';
 import { Toaster } from 'react-hot-toast';
+import { supabase } from './lib/supabase';
 
 initializeMonitoring();
 initializeAnalytics();
@@ -212,7 +213,6 @@ function App() {
         </div>
       </section>
 
-      {/* Video Demo Section */}
       <section className="py-20 px-4 sm:px-6 lg:px-8 bg-white">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-12">
@@ -507,15 +507,32 @@ function App() {
 
   const CreatePersonaFlow = () => {
     const handleTrainingComplete = async () => {
-      console.log('Training completed - navigating to conversation view');
+      console.log('Training completed - fetching fresh persona data');
 
-      const activePersonas = personas.filter(p => p.status === 'active');
-      if (activePersonas.length > 0) {
-        const newestPersona = activePersonas[activePersonas.length - 1];
-        setSelectedPersona(newestPersona);
-        setConversationType('chat');
-        setCurrentView('conversation');
-      } else {
+      try {
+        // ✅ Wait 2 seconds for voice ID to finish saving to Supabase
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // ✅ Fetch the most recently created persona fresh from Supabase
+        // This avoids the stale personas list bug
+        const { data: freshPersona } = await supabase
+          .from('personas')
+          .select('*')
+          .eq('user_id', user?.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (freshPersona) {
+          console.log('✅ Fresh persona loaded:', freshPersona.name, 'voice_model_id:', freshPersona.voice_model_id);
+          setSelectedPersona(freshPersona);
+          setConversationType('chat');
+          setCurrentView('conversation');
+        } else {
+          setCurrentView('dashboard');
+        }
+      } catch (error) {
+        console.error('Error fetching persona after training:', error);
         setCurrentView('dashboard');
       }
     };
