@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { HelmetProvider } from 'react-helmet-async';
-import { Heart, Video, Upload, MessageCircle, Shield, Star, Play, Sparkles, Plus, LogOut, Brain, Menu, X, Zap, Clock, Users } from 'lucide-react';
+import { Heart, Video, Upload, MessageCircle, Shield, Star, Play, Sparkles, Plus, LogOut, Brain, Menu, X, Zap, Clock, Users, BookOpen } from 'lucide-react';
 import { useAuth } from './hooks/useAuth';
 import { usePersonas } from './hooks/usePersonas';
 import { AuthModal } from './components/AuthModal';
@@ -27,17 +27,14 @@ function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [selectedPersona, setSelectedPersona] = useState<any>(null);
   const [conversationType, setConversationType] = useState<'chat' | 'video_call' | 'voice_call'>('chat');
+  const [enrichingPersona, setEnrichingPersona] = useState<any>(null);
 
   const { user, loading: authLoading, signOut } = useAuth();
-  const { personas, loading: personasLoading, createPersona } = usePersonas();
+  const { personas, loading: personasLoading } = usePersonas();
 
   useEffect(() => {
     if (user) {
-      setUserContext({
-        id: user.id,
-        email: user.email || '',
-        subscription: 'free'
-      });
+      setUserContext({ id: user.id, email: user.email || '', subscription: 'free' });
     }
   }, [user]);
 
@@ -64,27 +61,18 @@ function App() {
               <>
                 <button
                   onClick={() => setCurrentView('dashboard')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    currentView === 'dashboard'
-                      ? 'bg-blue-50 text-blue-600'
-                      : 'text-gray-600 hover:bg-gray-50'
-                  }`}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${currentView === 'dashboard' ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
                   Dashboard
                 </button>
                 <button
                   onClick={() => setCurrentView('analytics')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    currentView === 'analytics'
-                      ? 'bg-blue-50 text-blue-600'
-                      : 'text-gray-600 hover:bg-gray-50'
-                  }`}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${currentView === 'analytics' ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
                   Analytics
                 </button>
               </>
             )}
-
             {user ? (
               <div className="flex items-center gap-2 ml-2">
                 <div className="px-3 py-2 bg-gray-50 rounded-lg">
@@ -94,7 +82,6 @@ function App() {
                 <button
                   onClick={() => signOut()}
                   className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-all"
-                  title="Sign Out"
                 >
                   <LogOut className="h-5 w-5" />
                 </button>
@@ -109,10 +96,7 @@ function App() {
             )}
           </div>
 
-          <button
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="md:hidden p-2 rounded-lg hover:bg-gray-100"
-          >
+          <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="md:hidden p-2 rounded-lg hover:bg-gray-100">
             {isMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
           </button>
         </div>
@@ -122,31 +106,13 @@ function App() {
         <div className="md:hidden bg-white border-t border-gray-100 py-4 px-4 space-y-2">
           {user && (
             <>
-              <button
-                onClick={() => {setCurrentView('dashboard'); setIsMenuOpen(false);}}
-                className="block w-full text-left px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-50"
-              >
-                Dashboard
-              </button>
-              <button
-                onClick={() => {setCurrentView('analytics'); setIsMenuOpen(false);}}
-                className="block w-full text-left px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-50"
-              >
-                Analytics
-              </button>
-              <button
-                onClick={() => {signOut(); setIsMenuOpen(false);}}
-                className="block w-full text-left px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-50"
-              >
-                Sign Out
-              </button>
+              <button onClick={() => { setCurrentView('dashboard'); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-50">Dashboard</button>
+              <button onClick={() => { setCurrentView('analytics'); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-50">Analytics</button>
+              <button onClick={() => { signOut(); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-50">Sign Out</button>
             </>
           )}
           {!user && (
-            <button
-              onClick={() => {setIsAuthModalOpen(true); setIsMenuOpen(false);}}
-              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-full font-semibold"
-            >
+            <button onClick={() => { setIsAuthModalOpen(true); setIsMenuOpen(false); }} className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-full font-semibold">
               Get Started
             </button>
           )}
@@ -159,7 +125,6 @@ function App() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
       <SEOHead />
       <Navigation />
-
       <section className="pt-24 pb-20 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
           <div className="text-center max-w-4xl mx-auto">
@@ -167,20 +132,13 @@ function App() {
               <Sparkles className="h-4 w-4" />
               AI-Powered Memory Preservation
             </div>
-
             <h1 className="text-5xl md:text-7xl font-bold text-gray-900 mb-6 leading-tight">
-              Keep Their Memory
-              <br />
-              <span className="bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
-                Alive Forever
-              </span>
+              Keep Their Memory<br />
+              <span className="bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">Alive Forever</span>
             </h1>
-
             <p className="text-xl md:text-2xl text-gray-600 mb-10 leading-relaxed">
-              Create lifelike AI personas of loved ones. Have meaningful conversations
-              that preserve their voice, personality, and memories.
+              Create lifelike AI personas of loved ones. Have meaningful conversations that preserve their voice, personality, and memories.
             </p>
-
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-12">
               <button
                 onClick={() => user ? setCurrentView('dashboard') : setIsAuthModalOpen(true)}
@@ -194,10 +152,9 @@ function App() {
                 Watch Demo
               </button>
             </div>
-
             <div className="flex flex-wrap justify-center gap-6 text-sm text-gray-600">
               <div className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
                 No credit card required
               </div>
               <div className="flex items-center gap-2">
@@ -220,39 +177,17 @@ function App() {
               <Video className="h-4 w-4" />
               See How It Works
             </div>
-            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
-              Watch AlwayZ in Action
-            </h2>
-            <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-              See how easy it is to create an AI persona that preserves memories and personality forever
-            </p>
+            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">Watch AlwayZ in Action</h2>
           </div>
-
           <div className="relative rounded-3xl overflow-hidden shadow-2xl border-4 border-gray-100 bg-gray-900">
             <div className="aspect-video">
-              <iframe
-                className="w-full h-full"
-                src="https://www.youtube.com/embed/dQw4w9WgXcQ"
-                title="AlwayZ Demo Video"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-              ></iframe>
+              <iframe className="w-full h-full" src="https://www.youtube.com/embed/dQw4w9WgXcQ" title="AlwayZ Demo" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
             </div>
           </div>
-
           <div className="mt-12 grid md:grid-cols-3 gap-8 text-center">
-            <div className="p-6">
-              <div className="text-4xl font-bold text-blue-600 mb-2">2-3 min</div>
-              <p className="text-gray-600">Average setup time</p>
-            </div>
-            <div className="p-6">
-              <div className="text-4xl font-bold text-purple-600 mb-2">99%</div>
-              <p className="text-gray-600">Voice accuracy rate</p>
-            </div>
-            <div className="p-6">
-              <div className="text-4xl font-bold text-pink-600 mb-2">24/7</div>
-              <p className="text-gray-600">Always available to chat</p>
-            </div>
+            <div className="p-6"><div className="text-4xl font-bold text-blue-600 mb-2">2-3 min</div><p className="text-gray-600">Average setup time</p></div>
+            <div className="p-6"><div className="text-4xl font-bold text-purple-600 mb-2">99%</div><p className="text-gray-600">Voice accuracy rate</p></div>
+            <div className="p-6"><div className="text-4xl font-bold text-pink-600 mb-2">24/7</div><p className="text-gray-600">Always available</p></div>
           </div>
         </div>
       </section>
@@ -260,120 +195,33 @@ function App() {
       <section className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-gray-50 to-gray-100">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
-              How It Works
-            </h2>
-            <p className="text-xl text-gray-600">
-              Three simple steps to preserve a lifetime of memories
-            </p>
+            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">How It Works</h2>
+            <p className="text-xl text-gray-600">Three simple steps to preserve a lifetime of memories</p>
           </div>
-
           <div className="grid md:grid-cols-3 gap-8">
-            <div className="relative group">
-              <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-500 rounded-2xl blur opacity-25 group-hover:opacity-40 transition-opacity"></div>
-              <div className="relative bg-white p-8 rounded-2xl shadow-xl border border-gray-100 h-full">
-                <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center mb-6 shadow-lg">
-                  <Upload className="h-7 w-7 text-white" />
-                </div>
-                <div className="mb-4 text-sm font-bold text-blue-600">STEP 1</div>
-                <h3 className="text-2xl font-bold text-gray-900 mb-4">Upload Content</h3>
-                <p className="text-gray-600 leading-relaxed">
-                  Share videos, voice notes, photos, and social media posts. Our AI learns
-                  their unique personality, voice, and mannerisms.
-                </p>
-              </div>
-            </div>
-
-            <div className="relative group">
-              <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-pink-500 rounded-2xl blur opacity-25 group-hover:opacity-40 transition-opacity"></div>
-              <div className="relative bg-white p-8 rounded-2xl shadow-xl border border-gray-100 h-full">
-                <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center mb-6 shadow-lg">
-                  <Brain className="h-7 w-7 text-white" />
-                </div>
-                <div className="mb-4 text-sm font-bold text-purple-600">STEP 2</div>
-                <h3 className="text-2xl font-bold text-gray-900 mb-4">AI Training</h3>
-                <p className="text-gray-600 leading-relaxed">
-                  Advanced AI analyzes thousands of data points to create an authentic
-                  digital presence that captures their essence.
-                </p>
-              </div>
-            </div>
-
-            <div className="relative group">
-              <div className="absolute inset-0 bg-gradient-to-r from-pink-500 to-orange-500 rounded-2xl blur opacity-25 group-hover:opacity-40 transition-opacity"></div>
-              <div className="relative bg-white p-8 rounded-2xl shadow-xl border border-gray-100 h-full">
-                <div className="w-14 h-14 bg-gradient-to-br from-pink-500 to-pink-600 rounded-xl flex items-center justify-center mb-6 shadow-lg">
-                  <MessageCircle className="h-7 w-7 text-white" />
-                </div>
-                <div className="mb-4 text-sm font-bold text-pink-600">STEP 3</div>
-                <h3 className="text-2xl font-bold text-gray-900 mb-4">Connect & Heal</h3>
-                <p className="text-gray-600 leading-relaxed">
-                  Have natural conversations that help process grief and maintain
-                  that irreplaceable connection forever.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-gray-50 to-gray-100">
-        <div className="max-w-7xl mx-auto">
-          <div className="bg-white rounded-3xl shadow-2xl overflow-hidden">
-            <div className="grid md:grid-cols-2 gap-0">
-              <div className="p-12 flex flex-col justify-center">
-                <div className="inline-flex items-center gap-2 bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-medium mb-6 w-fit">
-                  <Shield className="h-3 w-3" />
-                  Privacy First
-                </div>
-                <h2 className="text-4xl font-bold text-gray-900 mb-6">
-                  Your Memories Are Sacred
-                </h2>
-                <p className="text-lg text-gray-600 mb-8 leading-relaxed">
-                  We use enterprise-grade encryption and never share your data.
-                  Your conversations remain completely private and secure.
-                </p>
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                      <Star className="h-4 w-4 text-green-600" />
-                    </div>
-                    <span className="text-gray-700">256-bit end-to-end encryption</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                      <Shield className="h-4 w-4 text-blue-600" />
-                    </div>
-                    <span className="text-gray-700">GDPR & SOC 2 compliant</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center">
-                      <Zap className="h-4 w-4 text-purple-600" />
-                    </div>
-                    <span className="text-gray-700">You own and control your data</span>
-                  </div>
+            {[
+              { icon: <Upload className="h-7 w-7 text-white" />, color: 'from-blue-500 to-blue-600', step: 'STEP 1', title: 'Upload Content', desc: 'Share videos, voice notes, photos, and social media posts. Our AI learns their unique personality and voice.' },
+              { icon: <Brain className="h-7 w-7 text-white" />, color: 'from-purple-500 to-purple-600', step: 'STEP 2', title: 'AI Training', desc: 'Advanced AI analyzes thousands of data points to create an authentic digital presence.' },
+              { icon: <MessageCircle className="h-7 w-7 text-white" />, color: 'from-pink-500 to-pink-600', step: 'STEP 3', title: 'Connect & Heal', desc: 'Have natural conversations that help process grief and maintain that irreplaceable connection.' }
+            ].map((item, i) => (
+              <div key={i} className="relative group">
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-500 rounded-2xl blur opacity-25 group-hover:opacity-40 transition-opacity" />
+                <div className="relative bg-white p-8 rounded-2xl shadow-xl border border-gray-100 h-full">
+                  <div className={`w-14 h-14 bg-gradient-to-br ${item.color} rounded-xl flex items-center justify-center mb-6 shadow-lg`}>{item.icon}</div>
+                  <div className="mb-4 text-sm font-bold text-blue-600">{item.step}</div>
+                  <h3 className="text-2xl font-bold text-gray-900 mb-4">{item.title}</h3>
+                  <p className="text-gray-600 leading-relaxed">{item.desc}</p>
                 </div>
               </div>
-              <div className="bg-gradient-to-br from-blue-500 to-purple-600 p-12 flex items-center justify-center">
-                <div className="text-center text-white">
-                  <Shield className="h-24 w-24 mx-auto mb-6 opacity-90" />
-                  <div className="text-6xl font-bold mb-2">100%</div>
-                  <div className="text-xl opacity-90">Secure & Private</div>
-                </div>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
       </section>
 
       <section className="py-20 px-4 sm:px-6 lg:px-8">
         <div className="max-w-4xl mx-auto text-center">
-          <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
-            Ready to Preserve Their Memory?
-          </h2>
-          <p className="text-xl text-gray-600 mb-10">
-            Join thousands who are keeping their loved ones' memories alive
-          </p>
+          <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">Ready to Preserve Their Memory?</h2>
+          <p className="text-xl text-gray-600 mb-10">Join thousands who are keeping their loved ones' memories alive</p>
           <button
             onClick={() => user ? setCurrentView('dashboard') : setIsAuthModalOpen(true)}
             className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-10 py-5 rounded-full text-lg font-bold hover:shadow-2xl transition-all duration-300 transform hover:scale-105"
@@ -392,7 +240,7 @@ function App() {
           <Navigation />
           <div className="flex items-center justify-center h-[calc(100vh-4rem)]">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-600 mx-auto mb-4"></div>
+              <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-600 mx-auto mb-4" />
               <p className="text-gray-600">Loading your personas...</p>
             </div>
           </div>
@@ -404,7 +252,6 @@ function App() {
       <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/30">
         <SEOHead title="Dashboard" />
         <Navigation />
-
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="mb-10 flex items-center justify-between">
             <div>
@@ -442,15 +289,12 @@ function App() {
           ) : (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
               {personas.map((persona: any) => (
-                <div
-                  key={persona.id}
-                  className="group bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden hover:shadow-2xl transition-all duration-300 cursor-pointer transform hover:-translate-y-1"
-                  onClick={() => {
-                    setSelectedPersona(persona);
-                    setCurrentView('conversation');
-                  }}
-                >
-                  <div className="aspect-[4/3] bg-gradient-to-br from-blue-500 to-purple-600 relative overflow-hidden">
+                <div key={persona.id} className="group bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1">
+                  {/* Photo area */}
+                  <div
+                    className="aspect-[4/3] bg-gradient-to-br from-blue-500 to-purple-600 relative overflow-hidden cursor-pointer"
+                    onClick={() => { setSelectedPersona(persona); setCurrentView('conversation'); }}
+                  >
                     {persona.avatar_url ? (
                       <img src={persona.avatar_url} alt={persona.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                     ) : (
@@ -460,25 +304,37 @@ function App() {
                     )}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent opacity-60 group-hover:opacity-80 transition-opacity" />
                     <div className="absolute bottom-4 left-4 right-4">
-                      <h3 className="text-2xl font-bold text-white mb-1 drop-shadow-lg">
-                        {persona.name}
-                      </h3>
-                      <p className="text-sm text-white/90 capitalize drop-shadow">
-                        {persona.relationship}
-                      </p>
+                      <h3 className="text-2xl font-bold text-white mb-1 drop-shadow-lg">{persona.name}</h3>
+                      <p className="text-sm text-white/90 capitalize drop-shadow">{persona.relationship}</p>
                     </div>
                   </div>
 
-                  <div className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-sm text-gray-500">
-                        <Clock className="h-4 w-4" />
-                        <span>Created {new Date(persona.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-blue-600 font-semibold text-sm group-hover:gap-3 transition-all">
-                        <span>Open</span>
-                        <span>→</span>
-                      </div>
+                  {/* Card footer */}
+                  <div className="p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm text-gray-500">
+                      <Clock className="h-4 w-4" />
+                      <span>{new Date(persona.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {/* ✅ Enrich Memories button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEnrichingPersona(persona);
+                          setCurrentView('enrich-persona');
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-pink-50 text-pink-600 rounded-lg text-xs font-semibold hover:bg-pink-100 transition-all"
+                        title="Add memories & details"
+                      >
+                        <BookOpen className="h-3.5 w-3.5" />
+                        Enrich
+                      </button>
+                      <button
+                        onClick={() => { setSelectedPersona(persona); setCurrentView('conversation'); }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-all"
+                      >
+                        Talk →
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -491,12 +347,8 @@ function App() {
                 <div className="w-16 h-16 bg-gradient-to-br from-blue-100 to-purple-100 group-hover:from-blue-500 group-hover:to-purple-600 rounded-full flex items-center justify-center mb-4 transition-all">
                   <Plus className="h-8 w-8 text-blue-600 group-hover:text-white transition-colors" />
                 </div>
-                <span className="text-xl font-bold text-gray-600 group-hover:text-blue-600 transition-colors">
-                  Create New Persona
-                </span>
-                <span className="text-sm text-gray-500 mt-2">
-                  Preserve another memory
-                </span>
+                <span className="text-xl font-bold text-gray-600 group-hover:text-blue-600 transition-colors">Create New Persona</span>
+                <span className="text-sm text-gray-500 mt-2">Preserve another memory</span>
               </button>
             </div>
           )}
@@ -508,13 +360,8 @@ function App() {
   const CreatePersonaFlow = () => {
     const handleTrainingComplete = async () => {
       console.log('Training completed - fetching fresh persona data');
-
       try {
-        // ✅ Wait 2 seconds for voice ID to finish saving to Supabase
         await new Promise(resolve => setTimeout(resolve, 2000));
-
-        // ✅ Fetch the most recently created persona fresh from Supabase
-        // This avoids the stale personas list bug
         const { data: freshPersona } = await supabase
           .from('personas')
           .select('*')
@@ -542,18 +389,45 @@ function App() {
         <Navigation />
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="mb-8">
-            <button
-              onClick={() => setCurrentView('dashboard')}
-              className="text-gray-600 hover:text-gray-900 flex items-center gap-2 mb-4"
-            >
+            <button onClick={() => setCurrentView('dashboard')} className="text-gray-600 hover:text-gray-900 flex items-center gap-2 mb-4">
               ← Back to Dashboard
             </button>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Create New Persona</h1>
             <p className="text-gray-600">Build an AI persona that preserves their memory forever</p>
           </div>
+          <PersonaTraining onComplete={handleTrainingComplete} />
+        </div>
+      </div>
+    );
+  };
 
+  // ✅ Enrich Persona Flow — opens directly to memory form
+  const EnrichPersonaFlow = () => {
+    if (!enrichingPersona) {
+      setCurrentView('dashboard');
+      return null;
+    }
+
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Navigation />
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+          <div className="mb-8">
+            <button onClick={() => setCurrentView('dashboard')} className="text-gray-600 hover:text-gray-900 flex items-center gap-2 mb-4">
+              ← Back to Dashboard
+            </button>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              Enrich {enrichingPersona.name}'s Memories
+            </h1>
+            <p className="text-gray-600">Add personality traits, stories, and online presence to deepen their AI persona</p>
+          </div>
           <PersonaTraining
-            onComplete={handleTrainingComplete}
+            personaId={enrichingPersona.id}
+            startAtMemories={true}
+            onComplete={() => {
+              setEnrichingPersona(null);
+              setCurrentView('dashboard');
+            }}
           />
         </div>
       </div>
@@ -572,10 +446,7 @@ function App() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="mb-6">
             <button
-              onClick={() => {
-                setSelectedPersona(null);
-                setCurrentView('dashboard');
-              }}
+              onClick={() => { setSelectedPersona(null); setCurrentView('dashboard'); }}
               className="text-gray-600 hover:text-gray-900 flex items-center gap-2 mb-4"
             >
               ← Back to Dashboard
@@ -595,40 +466,42 @@ function App() {
                 </div>
               </div>
 
-              <div className="flex gap-2 bg-white rounded-lg p-1 shadow-sm">
+              <div className="flex items-center gap-3">
+                {/* ✅ Enrich button in conversation view */}
                 <button
-                  onClick={() => setConversationType('chat')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
-                    conversationType === 'chat'
-                      ? 'bg-blue-500 text-white'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
+                  onClick={() => {
+                    setEnrichingPersona(selectedPersona);
+                    setCurrentView('enrich-persona');
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-pink-50 text-pink-600 rounded-xl font-semibold text-sm hover:bg-pink-100 transition-all"
                 >
-                  <MessageCircle className="h-4 w-4" />
-                  <span className="text-sm font-medium">Chat</span>
+                  <BookOpen className="h-4 w-4" />
+                  Add Memories
                 </button>
-                <button
-                  onClick={() => setConversationType('voice_call')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
-                    conversationType === 'voice_call'
-                      ? 'bg-blue-500 text-white'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  <Heart className="h-4 w-4" />
-                  <span className="text-sm font-medium">Voice</span>
-                </button>
-                <button
-                  onClick={() => setConversationType('video_call')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${
-                    conversationType === 'video_call'
-                      ? 'bg-blue-500 text-white'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  <Video className="h-4 w-4" />
-                  <span className="text-sm font-medium">Video</span>
-                </button>
+
+                <div className="flex gap-2 bg-white rounded-lg p-1 shadow-sm">
+                  <button
+                    onClick={() => setConversationType('chat')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${conversationType === 'chat' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    <span className="text-sm font-medium">Chat</span>
+                  </button>
+                  <button
+                    onClick={() => setConversationType('voice_call')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${conversationType === 'voice_call' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                  >
+                    <Heart className="h-4 w-4" />
+                    <span className="text-sm font-medium">Voice</span>
+                  </button>
+                  <button
+                    onClick={() => setConversationType('video_call')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${conversationType === 'video_call' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                  >
+                    <Video className="h-4 w-4" />
+                    <span className="text-sm font-medium">Video</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -665,20 +538,6 @@ function App() {
     </div>
   );
 
-  const SubscriptionView = () => (
-    <div className="min-h-screen bg-gray-50">
-      <SEOHead title="Subscription" />
-      <Navigation />
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Subscription</h1>
-          <p className="text-gray-600">Manage your subscription and billing</p>
-        </div>
-        <SubscriptionManager />
-      </div>
-    </div>
-  );
-
   return (
     <HelmetProvider>
       <ErrorBoundary>
@@ -689,19 +548,16 @@ function App() {
           {currentView === 'landing' && <LandingPage />}
           {currentView === 'dashboard' && user && <Dashboard />}
           {currentView === 'create-persona' && user && <CreatePersonaFlow />}
+          {currentView === 'enrich-persona' && user && <EnrichPersonaFlow />}
           {currentView === 'conversation' && user && <ConversationView />}
           {currentView === 'analytics' && user && <AnalyticsView />}
-          {currentView === 'subscription' && user && <SubscriptionView />}
 
           {!user && currentView !== 'landing' && <LandingPage />}
 
           <AuthModal
             isOpen={isAuthModalOpen}
             onClose={() => setIsAuthModalOpen(false)}
-            onSuccess={() => {
-              setIsAuthModalOpen(false);
-              setCurrentView('dashboard');
-            }}
+            onSuccess={() => { setIsAuthModalOpen(false); setCurrentView('dashboard'); }}
           />
         </div>
       </ErrorBoundary>
