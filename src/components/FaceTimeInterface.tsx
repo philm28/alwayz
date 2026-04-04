@@ -44,9 +44,14 @@ export function FaceTimeInterface({
   const callStartRef = useRef<number>(Date.now());
   const isProcessingRef = useRef(false);
   const personaDataRef = useRef<any>(null);
+  const hasInitialized = useRef(false); // ✅ prevents double greeting in React strict mode
   const { user } = useAuth();
 
   useEffect(() => {
+    // ✅ Guard against React strict mode double-invocation
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
+
     initialize();
 
     const durationInterval = setInterval(() => {
@@ -61,17 +66,42 @@ export function FaceTimeInterface({
       );
     }, 100);
 
+    // ✅ Cleanup on unmount — kills robot voice
     return () => {
-      cleanup();
       clearInterval(durationInterval);
       clearInterval(waveformInterval);
+      hardStop();
     };
   }, []);
 
+  // ✅ Nuclear option — kills ALL audio on unmount
+  const hardStop = () => {
+    try {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+        recognitionRef.current = null;
+      }
+    } catch {}
+
+    try {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+      }
+    } catch {}
+
+    try {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.cancel(); // call twice — browser bug workaround
+    } catch {}
+
+    setIsListening(false);
+    setIsPersonaSpeaking(false);
+    isProcessingRef.current = false;
+  };
+
   const initialize = async () => {
     try {
-      // ✅ Retry fetching persona until we get a real voice ID
-      // Handles race condition where navigation happens before voice ID saves
       let persona = null;
       let attempts = 0;
       const maxAttempts = 10;
@@ -105,13 +135,11 @@ export function FaceTimeInterface({
         return;
       }
 
-      // If after all retries we still don't have a real voice ID
       if (!persona.voice_model_id || persona.voice_model_id.startsWith('voice_')) {
         console.warn('No real voice ID found after retries, using fallback TTS');
         setVoiceStatus('fallback');
       }
 
-      // ✅ Store in both state AND ref
       setPersonaData(persona);
       personaDataRef.current = persona;
 
@@ -132,7 +160,6 @@ export function FaceTimeInterface({
         }
       }
 
-      // Create conversation record
       if (user) {
         const { data: conversation } = await supabase
           .from('conversations')
@@ -151,7 +178,6 @@ export function FaceTimeInterface({
         }
       }
 
-      // ✅ Pass persona directly — fresh from DB with real voice ID
       setTimeout(() => playGreeting(persona), 500);
 
     } catch (error) {
@@ -225,6 +251,9 @@ export function FaceTimeInterface({
   };
 
   const speakAndDisplay = async (text: string) => {
+    // ✅ Stop any existing browser TTS immediately
+    window.speechSynthesis.cancel();
+
     setIsPersonaSpeaking(true);
     setPersonaMessage(text);
     isProcessingRef.current = true;
@@ -239,12 +268,12 @@ export function FaceTimeInterface({
         if (ELEVENLABS_API_KEY && voiceId) {
           spoke = await speakWithElevenLabs(text, voiceId);
         } else {
-          console.warn(`No valid voice ID — voiceId: ${voiceId}, apiKey: ${ELEVENLABS_API_KEY ? 'set' : 'missing'}`);
+          console.warn(`No valid voice ID — falling back to browser TTS`);
         }
 
-        // Fallback to browser TTS
         if (!spoke) {
           console.log('Falling back to browser TTS');
+          window.speechSynthesis.cancel(); // ensure clean state
           await new Promise<void>((resolve) => {
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.rate = 0.92;
@@ -252,7 +281,7 @@ export function FaceTimeInterface({
             utterance.volume = 1.0;
             utterance.onend = () => resolve();
             utterance.onerror = () => resolve();
-            speechSynthesis.speak(utterance);
+            window.speechSynthesis.speak(utterance);
           });
         }
       } else {
@@ -419,14 +448,7 @@ export function FaceTimeInterface({
   };
 
   const cleanup = () => {
-    stopListening();
-
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = '';
-    }
-
-    speechSynthesis.cancel();
+    hardStop();
 
     if (conversationIdRef.current) {
       supabase
@@ -469,9 +491,8 @@ export function FaceTimeInterface({
               </span>
             </div>
           </div>
-          {/* Voice status indicator — remove before going live */}
-          <div className="text-xs text-white/40">
-            {voiceStatus === 'loading' ? '⏳ Loading voice...' :
+          <div className="text-xs text-white/30">
+            {voiceStatus === 'loading' ? '⏳ Loading...' :
              voiceStatus === 'cloned' ? '🎤 Cloned voice' :
              '⚠️ Standard voice'}
           </div>
