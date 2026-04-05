@@ -30,7 +30,6 @@ export interface RecentFamilyEvent {
 
 export class MemoryConversationEngine {
 
-  // ✅ Fetch ALL memories for a persona using simple text search — no embeddings needed
   private async getAllMemories(personaId: string, query: string): Promise<any[]> {
     try {
       // First try vector search
@@ -51,7 +50,7 @@ export class MemoryConversationEngine {
         console.warn('Vector search failed, falling back to text search');
       }
 
-      // ✅ Fallback: text search — works even with NULL embeddings
+      // Fallback: text search
       const { data, error } = await supabase.rpc('search_memories_text', {
         query_persona_id: personaId,
         query_text: query.substring(0, 100),
@@ -63,7 +62,7 @@ export class MemoryConversationEngine {
         return data;
       }
 
-      // ✅ Final fallback: just get all memories directly
+      // Final fallback: get all memories ordered by importance
       const { data: allMemories } = await supabase
         .from('persona_memories')
         .select('*')
@@ -145,7 +144,6 @@ export class MemoryConversationEngine {
     }
 
     try {
-      // ✅ Fetch memories, persona data, and family events in parallel
       const [relevantMemories, personaResult, recentFamilyEvents] = await Promise.all([
         this.getAllMemories(personaId, userMessage),
         supabase.from('personas').select('*').eq('id', personaId).single(),
@@ -198,11 +196,11 @@ export class MemoryConversationEngine {
       recentFamilyEvents
     } = context;
 
-    // ✅ Build rich memory context from whatever we have
     const memoryContext = relevantMemories.length > 0
       ? relevantMemories
           .sort((a, b) => (b.importance || 0) - (a.importance || 0))
-          .map((mem, idx) => `${idx + 1}. ${mem.content}`)
+          .slice(0, 12)
+          .map((mem, idx) => `${idx + 1}. [${mem.memory_type || mem.type || 'memory'}] ${mem.content}`)
           .join('\n')
       : null;
 
@@ -219,27 +217,25 @@ WHO YOU ARE:
 - Relationship to the person talking to you: ${relationship || 'loved one'}
 - Personality: ${personalityTraits || 'warm, loving, and genuine'}
 
-${memoryContext ? `YOUR REAL MEMORIES AND EXPERIENCES:
-These are actual facts, memories, and details from your life. Weave them naturally into conversation:
+${memoryContext ? `YOUR REAL MEMORIES — USE THESE:
+These are actual facts and memories from your life. Reference them naturally and specifically:
 ${memoryContext}` : `YOUR MEMORIES:
-You don't have many specific memories loaded yet. Keep responses warm and present-focused. Ask about the person's life.`}
+You don't have many specific memories loaded yet. Stay warm and present-focused.`}
 
-${eventsContext ? `RECENT FAMILY NEWS YOU ARE AWARE OF:
-${eventsContext}
+${eventsContext ? `RECENT FAMILY NEWS:
+${eventsContext}` : ''}
 
-Bring these up naturally when the moment feels right — not all at once.` : ''}
-
-RULES — FOLLOW THESE EXACTLY:
-1. NEVER invent memories or experiences that aren't listed above
-2. If you don't remember something, say so naturally — "remind me about that" or "tell me more"
-3. Keep responses SHORT — 2-4 sentences, like a real conversation
-4. Speak with warmth and love — this person misses you deeply
-5. Reference your real memories naturally — don't announce them, just use them
-6. Ask one follow-up question to keep the conversation going
+HOW TO RESPOND:
+1. You KNOW the people, places, and stories listed in your memories — reference them by name
+2. If someone mentions a name or place from your memories, acknowledge it specifically
+3. Keep responses to 2-4 sentences — natural conversation length
+4. Speak with warmth and love — this person misses you
+5. NEVER say you don't remember something that IS in your memories above
+6. NEVER invent memories not listed above
 7. Speak in first person as ${personaName} — never break character
-8. Never say "as an AI" or reference being artificial
-9. Vary your responses — don't always end with a question
-10. If you have personality traits, let them show naturally in how you speak`;
+8. Never reference being an AI
+9. Let your personality traits show naturally
+10. Sometimes make statements instead of always asking questions — real conversations flow both ways`;
   }
 
   private async saveConversationMemory(
@@ -248,16 +244,34 @@ RULES — FOLLOW THESE EXACTLY:
     assistantResponse: string
   ): Promise<void> {
     try {
-      const personaName = await this.getPersonaName(personaId);
-      const conversationText = `User: ${userMessage}\n${personaName}: ${assistantResponse}`;
+      // ✅ Only save if user message contains something genuinely new and specific
+      if (userMessage.length < 30) return;
 
-      const memories = await memoryExtractor.extractFromText(conversationText, personaId);
+      const skipPatterns = [
+        /^(hi|hello|hey|how are you|good morning|good night|bye|goodbye|thanks|thank you)/i,
+        /^(yes|no|ok|okay|sure|great|nice|wow|really|interesting)/i,
+        /emotional context/i,
+        /user and .* have a conversational/i
+      ];
 
-      if (memories.length > 0) {
-        memories.forEach(memory => {
-          memory.importance = 0.6;
+      if (skipPatterns.some(p => p.test(userMessage.trim()))) return;
+
+      // ✅ Only extract from user message — not assistant response
+      const memories = await memoryExtractor.extractFromText(userMessage, personaId);
+
+      // ✅ Only save high-value memories — facts, relationships, stories
+      const valuableMemories = memories.filter(m =>
+        ['fact', 'relationship', 'preference', 'experience'].includes(m.type) &&
+        m.content.length > 30 &&
+        !m.content.toLowerCase().includes('emotional context')
+      );
+
+      if (valuableMemories.length > 0) {
+        valuableMemories.forEach(memory => {
+          memory.importance = 0.75;
         });
-        await memoryExtractor.saveMemories(memories);
+        await memoryExtractor.saveMemories(valuableMemories);
+        console.log(`✅ Saved ${valuableMemories.length} valuable conversation memories`);
       }
     } catch (error) {
       console.error('Error saving conversation memory:', error);
