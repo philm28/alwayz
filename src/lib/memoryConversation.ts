@@ -244,35 +244,53 @@ HOW TO RESPOND:
     assistantResponse: string
   ): Promise<void> {
     try {
-      // ✅ Only save if user message contains something genuinely new and specific
-      if (userMessage.length < 30) return;
+      // Skip very short messages
+      if (userMessage.length < 15) return;
 
+      // Skip pure greetings
       const skipPatterns = [
-        /^(hi|hello|hey|how are you|good morning|good night|bye|goodbye|thanks|thank you)/i,
-        /^(yes|no|ok|okay|sure|great|nice|wow|really|interesting)/i,
-        /emotional context/i,
-        /user and .* have a conversational/i
+        /^(hi|hello|hey|good morning|good night|bye|goodbye)\.?$/i,
+        /^(yes|no|ok|okay|sure|great|nice|wow|really)\.?$/i,
       ];
-
       if (skipPatterns.some(p => p.test(userMessage.trim()))) return;
 
-      // ✅ Only extract from user message — not assistant response
-      const memories = await memoryExtractor.extractFromText(userMessage, personaId);
+      // ✅ Use OpenAI to decide if message contains new memorable information
+      if (!openai) return;
 
-      // ✅ Only save high-value memories — facts, relationships, stories
-      const valuableMemories = memories.filter(m =>
-        ['fact', 'relationship', 'preference', 'experience'].includes(m.type) &&
-        m.content.length > 30 &&
-        !m.content.toLowerCase().includes('emotional context')
-      );
+      const analysisResponse = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [{
+          role: 'user',
+          content: `Does this message contain specific new information worth remembering? (names, places, dates, facts, stories, preferences, relationships)
 
-      if (valuableMemories.length > 0) {
-        valuableMemories.forEach(memory => {
-          memory.importance = 0.75;
+Message: "${userMessage}"
+
+Reply with JSON only: {"save": true/false, "reason": "brief reason", "key_facts": ["fact1", "fact2"]}`
+        }],
+        response_format: { type: 'json_object' },
+        max_tokens: 150,
+        temperature: 0.1
+      });
+
+      const analysis = JSON.parse(analysisResponse.choices[0]?.message?.content || '{"save": false}');
+
+      if (!analysis.save || !analysis.key_facts?.length) return;
+
+      // ✅ Save each key fact as its own clean memory
+      for (const fact of analysis.key_facts) {
+        if (fact.length < 10) continue;
+
+        await supabase.from('persona_memories').insert({
+          persona_id: personaId,
+          content: fact,
+          memory_type: 'fact',
+          source_type: 'conversation',
+          importance: 0.75
         });
-        await memoryExtractor.saveMemories(valuableMemories);
-        console.log(`✅ Saved ${valuableMemories.length} valuable conversation memories`);
       }
+
+      console.log(`✅ Saved ${analysis.key_facts.length} new facts from conversation`);
+
     } catch (error) {
       console.error('Error saving conversation memory:', error);
     }
