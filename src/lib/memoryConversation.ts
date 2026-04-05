@@ -32,7 +32,6 @@ export class MemoryConversationEngine {
 
   private async getAllMemories(personaId: string, query: string): Promise<any[]> {
     try {
-      // First try vector search
       try {
         const queryEmbedding = await memoryExtractor.generateEmbedding(query);
         if (queryEmbedding && queryEmbedding.length > 0) {
@@ -50,7 +49,6 @@ export class MemoryConversationEngine {
         console.warn('Vector search failed, falling back to text search');
       }
 
-      // Fallback: text search
       const { data, error } = await supabase.rpc('search_memories_text', {
         query_persona_id: personaId,
         query_text: query.substring(0, 100),
@@ -62,7 +60,6 @@ export class MemoryConversationEngine {
         return data;
       }
 
-      // Final fallback: get all memories ordered by importance
       const { data: allMemories } = await supabase
         .from('persona_memories')
         .select('*')
@@ -167,7 +164,7 @@ export class MemoryConversationEngine {
         model: 'gpt-4o',
         messages: [
           { role: 'system', content: context },
-          ...conversationHistory.slice(-10),
+          ...conversationHistory.slice(-20), // ✅ increased from 10 to 20
           { role: 'user', content: userMessage }
         ],
         temperature: 0.75,
@@ -193,7 +190,8 @@ export class MemoryConversationEngine {
       relevantMemories,
       personalityTraits,
       relationship,
-      recentFamilyEvents
+      recentFamilyEvents,
+      recentMessages
     } = context;
 
     const memoryContext = relevantMemories.length > 0
@@ -207,6 +205,14 @@ export class MemoryConversationEngine {
     const eventsContext = recentFamilyEvents && recentFamilyEvents.length > 0
       ? recentFamilyEvents
           .map(e => `- ${e.type.toUpperCase()}: "${e.description}" (${new Date(e.date).toLocaleDateString()})`)
+          .join('\n')
+      : null;
+
+    // ✅ Build real-time conversation summary so AI can connect the dots
+    const conversationSoFar = recentMessages && recentMessages.length > 0
+      ? recentMessages
+          .slice(-6)
+          .map(m => `${m.role === 'user' ? 'They said' : 'You said'}: "${m.content}"`)
           .join('\n')
       : null;
 
@@ -225,17 +231,25 @@ You don't have many specific memories loaded yet. Stay warm and present-focused.
 ${eventsContext ? `RECENT FAMILY NEWS:
 ${eventsContext}` : ''}
 
+${conversationSoFar ? `WHAT WE JUST TALKED ABOUT — THIS IS CRITICAL:
+You MUST remember and reference what was just said. Connect what they say NOW to what came before:
+${conversationSoFar}
+
+Do NOT repeat yourself. Do NOT forget what was just shared. Build on it.` : ''}
+
 HOW TO RESPOND:
 1. You KNOW the people, places, and stories listed in your memories — reference them by name
-2. If someone mentions a name or place from your memories, acknowledge it specifically
+2. If someone tells you something new (a name, a fact, a story) — acknowledge it and USE it immediately
 3. Keep responses to 2-4 sentences — natural conversation length
 4. Speak with warmth and love — this person misses you
 5. NEVER say you don't remember something that IS in your memories above
-6. NEVER invent memories not listed above
-7. Speak in first person as ${personaName} — never break character
-8. Never reference being an AI
-9. Let your personality traits show naturally
-10. Sometimes make statements instead of always asking questions — real conversations flow both ways`;
+6. NEVER say you don't remember something that was just said in this conversation
+7. NEVER invent memories not listed above
+8. Speak in first person as ${personaName} — never break character
+9. Never reference being an AI
+10. Let your personality traits show naturally
+11. Sometimes make statements instead of always asking questions — real conversations flow both ways
+12. If they told you their name earlier in this conversation — use it`;
   }
 
   private async saveConversationMemory(
@@ -244,24 +258,21 @@ HOW TO RESPOND:
     assistantResponse: string
   ): Promise<void> {
     try {
-      // Skip very short messages
       if (userMessage.length < 15) return;
 
-      // Skip pure greetings
       const skipPatterns = [
         /^(hi|hello|hey|good morning|good night|bye|goodbye)\.?$/i,
         /^(yes|no|ok|okay|sure|great|nice|wow|really)\.?$/i,
       ];
       if (skipPatterns.some(p => p.test(userMessage.trim()))) return;
 
-      // ✅ Use OpenAI to decide if message contains new memorable information
       if (!openai) return;
 
       const analysisResponse = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
         messages: [{
           role: 'user',
-          content: `Does this message contain specific new information worth remembering? (names, places, dates, facts, stories, preferences, relationships)
+          content: `Does this message contain specific new information worth remembering long-term? (names, places, dates, facts, stories, preferences, relationships)
 
 Message: "${userMessage}"
 
@@ -276,7 +287,6 @@ Reply with JSON only: {"save": true/false, "reason": "brief reason", "key_facts"
 
       if (!analysis.save || !analysis.key_facts?.length) return;
 
-      // ✅ Save each key fact as its own clean memory
       for (const fact of analysis.key_facts) {
         if (fact.length < 10) continue;
 
