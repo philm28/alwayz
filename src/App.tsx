@@ -1,18 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { HelmetProvider } from 'react-helmet-async';
-import { Heart, Video, Upload, MessageCircle, Shield, Star, Play, Sparkles, Plus, LogOut, Brain, Menu, X, Zap, Clock, Users, BookOpen } from 'lucide-react';
+import { Heart, Video, Upload, MessageCircle, Shield, Play, Sparkles, Plus, LogOut, Brain, Menu, X, Clock, Users, BookOpen } from 'lucide-react';
 import { useAuth } from './hooks/useAuth';
 import { usePersonas } from './hooks/usePersonas';
 import { AuthModal } from './components/AuthModal';
 import { PersonaTraining } from './components/PersonaTraining';
 import { ConversationInterface } from './components/ConversationInterface';
 import { SocialMediaImport } from './components/SocialMediaImport';
-import { SubscriptionManager } from './components/SubscriptionManager';
 import { Analytics } from './components/Analytics';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SEOHead } from './components/SEOHead';
 import { PerformanceMonitor } from './components/PerformanceMonitor';
 import { MemoryViewer } from './components/MemoryViewer';
+import { SurpriseMessage } from './components/SurpriseMessage';
 import { initializeMonitoring, setUserContext } from './lib/monitoring';
 import { initializeAnalytics, trackPageView } from './lib/analytics';
 import { Toaster } from 'react-hot-toast';
@@ -28,6 +28,7 @@ function App() {
   const [selectedPersona, setSelectedPersona] = useState<any>(null);
   const [conversationType, setConversationType] = useState<'chat' | 'video_call' | 'voice_call'>('chat');
   const [enrichingPersona, setEnrichingPersona] = useState<any>(null);
+  const [surprisePersona, setSurprisePersona] = useState<any>(null);
 
   const { user, loading: authLoading, signOut } = useAuth();
   const { personas, loading: personasLoading } = usePersonas();
@@ -140,7 +141,6 @@ function App() {
               </span>
             </h1>
 
-            {/* ✅ New mission statement — front and center */}
             <p className="text-xl md:text-2xl text-gray-600 mb-4 leading-relaxed font-medium">
               The infrastructure for human memory preservation.
             </p>
@@ -229,7 +229,7 @@ function App() {
         </div>
       </section>
 
-      {/* ✅ New mission statement quote section */}
+      {/* Mission statement quote section */}
       <section className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600">
         <div className="max-w-4xl mx-auto text-center">
           <div className="text-white/60 text-5xl mb-6">"</div>
@@ -337,6 +337,18 @@ function App() {
                       <span>{new Date(persona.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                     </div>
                     <div className="flex items-center gap-2">
+                      {/* ✅ Surprise Message button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSurprisePersona(persona);
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 text-purple-600 rounded-lg text-xs font-semibold hover:bg-purple-100 transition-all"
+                        title="Send a surprise message"
+                      >
+                        <Sparkles className="h-3.5 w-3.5" />
+                        Surprise
+                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -495,6 +507,14 @@ function App() {
                   Add Memories
                 </button>
 
+                <button
+                  onClick={() => setSurprisePersona(selectedPersona)}
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-50 text-purple-600 rounded-xl font-semibold text-sm hover:bg-purple-100 transition-all"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Surprise
+                </button>
+
                 <div className="flex gap-2 bg-white rounded-lg p-1 shadow-sm">
                   <button
                     onClick={() => setConversationType('chat')}
@@ -575,6 +595,14 @@ function App() {
             onClose={() => setIsAuthModalOpen(false)}
             onSuccess={() => { setIsAuthModalOpen(false); setCurrentView('dashboard'); }}
           />
+
+          {/* ✅ Surprise Message Modal */}
+          {surprisePersona && (
+            <SurpriseMessage
+              persona={surprisePersona}
+              onClose={() => setSurprisePersona(null)}
+            />
+          )}
         </div>
       </ErrorBoundary>
     </HelmetProvider>
