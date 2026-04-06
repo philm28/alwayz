@@ -44,11 +44,12 @@ export function FaceTimeInterface({
   const callStartRef = useRef<number>(Date.now());
   const isProcessingRef = useRef(false);
   const personaDataRef = useRef<any>(null);
-  const hasInitialized = useRef(false); // ✅ prevents double greeting in React strict mode
+  const hasInitialized = useRef(false);
+  const silenceTimerRef = useRef<any>(null); // ✅ silence detection timer
+  const accumulatedTranscriptRef = useRef(''); // ✅ accumulates speech across pauses
   const { user } = useAuth();
 
   useEffect(() => {
-    // ✅ Guard against React strict mode double-invocation
     if (hasInitialized.current) return;
     hasInitialized.current = true;
 
@@ -66,7 +67,6 @@ export function FaceTimeInterface({
       );
     }, 100);
 
-    // ✅ Cleanup on unmount — kills robot voice
     return () => {
       clearInterval(durationInterval);
       clearInterval(waveformInterval);
@@ -74,8 +74,14 @@ export function FaceTimeInterface({
     };
   }, []);
 
-  // ✅ Nuclear option — kills ALL audio on unmount
   const hardStop = () => {
+    try {
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
+    } catch {}
+
     try {
       if (recognitionRef.current) {
         recognitionRef.current.abort();
@@ -92,9 +98,10 @@ export function FaceTimeInterface({
 
     try {
       window.speechSynthesis.cancel();
-      window.speechSynthesis.cancel(); // call twice — browser bug workaround
+      window.speechSynthesis.cancel();
     } catch {}
 
+    accumulatedTranscriptRef.current = '';
     setIsListening(false);
     setIsPersonaSpeaking(false);
     isProcessingRef.current = false;
@@ -119,8 +126,6 @@ export function FaceTimeInterface({
             console.log(`✅ Got real voice ID on attempt ${attempts + 1}:`, data.voice_model_id);
             setVoiceStatus('cloned');
             break;
-          } else {
-            console.log(`⏳ Attempt ${attempts + 1}: No real voice ID yet, retrying...`);
           }
         }
 
@@ -136,14 +141,12 @@ export function FaceTimeInterface({
       }
 
       if (!persona.voice_model_id || persona.voice_model_id.startsWith('voice_')) {
-        console.warn('No real voice ID found after retries, using fallback TTS');
         setVoiceStatus('fallback');
       }
 
       setPersonaData(persona);
       personaDataRef.current = persona;
 
-      // Try to find a photo if none provided
       if (!avatarUrl) {
         const { data: content } = await supabase
           .from('persona_content')
@@ -153,11 +156,8 @@ export function FaceTimeInterface({
           .limit(1)
           .maybeSingle();
 
-        if (content?.file_url) {
-          setAvatarUrl(content.file_url);
-        } else if (content?.metadata?.media_url) {
-          setAvatarUrl(content.metadata.media_url);
-        }
+        if (content?.file_url) setAvatarUrl(content.file_url);
+        else if (content?.metadata?.media_url) setAvatarUrl(content.metadata.media_url);
       }
 
       if (user) {
@@ -173,9 +173,7 @@ export function FaceTimeInterface({
           .select()
           .single();
 
-        if (conversation) {
-          conversationIdRef.current = conversation.id;
-        }
+        if (conversation) conversationIdRef.current = conversation.id;
       }
 
       setTimeout(() => playGreeting(persona), 500);
@@ -215,19 +213,13 @@ export function FaceTimeInterface({
         })
       });
 
-      if (!response.ok) {
-        console.warn('ElevenLabs failed:', response.status, response.statusText);
-        return false;
-      }
+      if (!response.ok) return false;
 
       const audioBlob = await response.blob();
       const audioUrl = URL.createObjectURL(audioBlob);
 
       return new Promise((resolve) => {
-        if (!audioRef.current) {
-          resolve(false);
-          return;
-        }
+        if (!audioRef.current) { resolve(false); return; }
 
         audioRef.current.src = audioUrl;
         audioRef.current.volume = isSpeakerOn ? 1.0 : 0.0;
@@ -244,14 +236,12 @@ export function FaceTimeInterface({
 
         audioRef.current.play().catch(() => resolve(false));
       });
-    } catch (error) {
-      console.warn('ElevenLabs error:', error);
+    } catch {
       return false;
     }
   };
 
   const speakAndDisplay = async (text: string) => {
-    // ✅ Stop any existing browser TTS immediately
     window.speechSynthesis.cancel();
 
     setIsPersonaSpeaking(true);
@@ -267,13 +257,10 @@ export function FaceTimeInterface({
 
         if (ELEVENLABS_API_KEY && voiceId) {
           spoke = await speakWithElevenLabs(text, voiceId);
-        } else {
-          console.warn(`No valid voice ID — falling back to browser TTS`);
         }
 
         if (!spoke) {
-          console.log('Falling back to browser TTS');
-          window.speechSynthesis.cancel(); // ensure clean state
+          window.speechSynthesis.cancel();
           await new Promise<void>((resolve) => {
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.rate = 0.92;
@@ -305,11 +292,27 @@ export function FaceTimeInterface({
         []
       );
       await speakAndDisplay(greeting);
-    } catch (error) {
+    } catch {
       await speakAndDisplay(
-        `Oh, it's so good to see your face. I've been thinking about you.`
+        `Oh, it's so good to hear from you. I've been thinking about you.`
       );
     }
+  };
+
+  // ✅ Called when silence timer fires — send whatever was accumulated
+  const submitAccumulatedTranscript = () => {
+    const transcript = accumulatedTranscriptRef.current.trim();
+    if (!transcript || isProcessingRef.current) return;
+
+    accumulatedTranscriptRef.current = '';
+    setCurrentTranscript('');
+
+    // Stop current recognition session
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch {}
+    }
+
+    handleUserSpeech(transcript);
   };
 
   const handleUserSpeech = async (transcript: string) => {
@@ -332,7 +335,6 @@ export function FaceTimeInterface({
       ...conversationHistory,
       { role: 'user', content: transcript }
     ];
-
     setConversationHistory(updatedHistory);
 
     try {
@@ -346,7 +348,6 @@ export function FaceTimeInterface({
         ...updatedHistory,
         { role: 'assistant', content: response }
       ];
-
       setConversationHistory(newHistory);
 
       if (conversationIdRef.current) {
@@ -379,42 +380,84 @@ export function FaceTimeInterface({
       return;
     }
 
+    // ✅ Reset accumulated transcript for new listening session
+    accumulatedTranscriptRef.current = '';
+
     const recognition = new SpeechRecognition();
-    recognition.continuous = false;
+    recognition.continuous = true; // ✅ keep listening across pauses
     recognition.interimResults = true;
     recognition.lang = 'en-US';
+    recognition.maxAlternatives = 1;
 
     recognition.onstart = () => setIsListening(true);
 
     recognition.onresult = (event: any) => {
-      let interim = '';
-      let final = '';
+      // ✅ Clear any existing silence timer
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
+
+      let interimTranscript = '';
+      let finalTranscript = '';
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const t = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          final += t;
+          finalTranscript += t;
         } else {
-          interim += t;
+          interimTranscript += t;
         }
       }
 
-      setCurrentTranscript(interim || final);
-
-      if (final.trim()) {
-        recognition.stop();
-        handleUserSpeech(final.trim());
+      // ✅ Accumulate final transcript pieces
+      if (finalTranscript) {
+        accumulatedTranscriptRef.current += (accumulatedTranscriptRef.current ? ' ' : '') + finalTranscript;
       }
+
+      // ✅ Show interim + accumulated in UI
+      const displayText = accumulatedTranscriptRef.current +
+        (interimTranscript ? ' ' + interimTranscript : '');
+      setCurrentTranscript(displayText);
+
+      // ✅ Start silence timer — wait 2 seconds of silence before submitting
+      // This gives the user time to pause mid-sentence without being cut off
+      silenceTimerRef.current = setTimeout(() => {
+        if (accumulatedTranscriptRef.current.trim()) {
+          submitAccumulatedTranscript();
+        }
+      }, 2000); // ✅ 2 second silence = done speaking
     };
 
     recognition.onerror = (event: any) => {
-      if (event.error !== 'no-speech' && event.error !== 'aborted') {
+      if (event.error === 'no-speech') {
+        // No speech detected — restart quietly
+        if (!isProcessingRef.current) {
+          setTimeout(() => startListening(), 300);
+        }
+        return;
+      }
+      if (event.error !== 'aborted') {
         console.error('Speech error:', event.error);
       }
       setIsListening(false);
     };
 
-    recognition.onend = () => setIsListening(false);
+    recognition.onend = () => {
+      setIsListening(false);
+
+      // ✅ If recognition ended but we have accumulated text and no timer — submit it
+      if (accumulatedTranscriptRef.current.trim() && !silenceTimerRef.current && !isProcessingRef.current) {
+        submitAccumulatedTranscript();
+        return;
+      }
+
+      // ✅ If still listening mode and not processing — restart recognition
+      // This keeps the mic open continuously
+      if (!isProcessingRef.current) {
+        setTimeout(() => startListening(), 300);
+      }
+    };
 
     recognitionRef.current = recognition;
 
@@ -426,9 +469,16 @@ export function FaceTimeInterface({
   };
 
   const stopListening = () => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+
     if (recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch {}
     }
+
+    accumulatedTranscriptRef.current = '';
     setIsListening(false);
   };
 
@@ -492,7 +542,7 @@ export function FaceTimeInterface({
             </div>
           </div>
           <div className="text-xs text-white/30">
-            {voiceStatus === 'loading' ? '⏳ Loading...' :
+            {voiceStatus === 'loading' ? '⏳' :
              voiceStatus === 'cloned' ? '🎤 Cloned voice' :
              '⚠️ Standard voice'}
           </div>
@@ -520,10 +570,8 @@ export function FaceTimeInterface({
           </div>
         )}
 
-        {/* Dark overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
 
-        {/* Loading state */}
         {voiceStatus === 'loading' && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="bg-black/60 backdrop-blur-md rounded-2xl px-8 py-6 text-center">
@@ -597,9 +645,7 @@ export function FaceTimeInterface({
           <button
             onClick={() => setIsSpeakerOn(!isSpeakerOn)}
             className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-200 shadow-xl ${
-              isSpeakerOn
-                ? 'bg-white/20 backdrop-blur'
-                : 'bg-red-500/80'
+              isSpeakerOn ? 'bg-white/20 backdrop-blur' : 'bg-red-500/80'
             }`}
           >
             {isSpeakerOn
@@ -612,7 +658,7 @@ export function FaceTimeInterface({
         <p className="text-center text-white/40 text-xs mt-4">
           {voiceStatus === 'loading' ? 'Loading...' :
            isPersonaSpeaking ? `${personaName} is speaking...` :
-           isListening ? 'Listening — speak naturally' :
+           isListening ? 'Listening — take your time' :
            'Tap mic to speak'}
         </p>
       </div>
