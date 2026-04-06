@@ -30,42 +30,101 @@ export interface RecentFamilyEvent {
 
 export class MemoryConversationEngine {
 
+  // ✅ Rolling summary per persona per session
+  private conversationSummaries: Map<string, string> = new Map();
+  // ✅ In-memory facts learned THIS conversation — immediately available
+  private sessionFacts: Map<string, string[]> = new Map();
+
+  // ✅ Update rolling summary of older exchanges
+  private async updateConversationSummary(
+    personaId: string,
+    conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>
+  ): Promise<string> {
+    if (conversationHistory.length === 0) return '';
+
+    // Keep last 8 exchanges raw — only summarize older ones
+    const keepRaw = conversationHistory.slice(-8);
+    const toSummarize = conversationHistory.slice(0, -8);
+
+    let summaryBlock = '';
+
+    if (toSummarize.length > 0 && openai) {
+      try {
+        const existingSummary = this.conversationSummaries.get(personaId) || '';
+
+        const summaryResponse = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [{
+            role: 'user',
+            content: `You are summarizing a conversation for memory retention. Extract every specific fact, name, date, place, preference, and detail shared. Be exhaustive — nothing specific should be lost.
+
+Previous summary: ${existingSummary || 'None yet'}
+
+New exchanges to incorporate:
+${toSummarize.map(m => `${m.role === 'user' ? 'THEM' : 'YOU'}: "${m.content}"`).join('\n')}
+
+Return a bullet point list of ALL established facts. Include everything from the previous summary plus new details.`
+          }],
+          max_tokens: 400,
+          temperature: 0.1
+        });
+
+        const newSummary = summaryResponse.choices[0]?.message?.content || existingSummary;
+        this.conversationSummaries.set(personaId, newSummary);
+        summaryBlock = `EARLIER IN THIS CONVERSATION (established facts — treat as certain):\n${newSummary}\n\n`;
+      } catch {
+        const existing = this.conversationSummaries.get(personaId);
+        if (existing) summaryBlock = `EARLIER IN THIS CONVERSATION:\n${existing}\n\n`;
+      }
+    }
+
+    const rawBlock = keepRaw.length > 0
+      ? `MOST RECENT EXCHANGES (happening right now):\n${keepRaw.map(m => `${m.role === 'user' ? 'THEM' : 'YOU'}: "${m.content}"`).join('\n')}`
+      : '';
+
+    return summaryBlock + rawBlock;
+  }
+
+  // ✅ Get ALL memories for this persona — no limits
   private async getAllMemories(personaId: string, query: string): Promise<any[]> {
     try {
+      // Try vector search first
       try {
         const queryEmbedding = await memoryExtractor.generateEmbedding(query);
         if (queryEmbedding && queryEmbedding.length > 0) {
           const { data, error } = await supabase.rpc('search_memories', {
             query_persona_id: personaId,
             query_embedding: queryEmbedding,
-            match_count: 15
+            match_count: 20 // ✅ full 20 memories
           });
           if (!error && data && data.length > 0) {
             console.log(`✅ Vector search found ${data.length} memories`);
             return data;
           }
         }
-      } catch (vectorError) {
-        console.warn('Vector search failed, falling back to text search');
+      } catch {
+        console.warn('Vector search failed, using text search');
       }
 
-      const { data, error } = await supabase.rpc('search_memories_text', {
+      // Text search fallback
+      const { data: textData, error: textError } = await supabase.rpc('search_memories_text', {
         query_persona_id: personaId,
         query_text: query.substring(0, 100),
-        match_count: 15
+        match_count: 20
       });
 
-      if (!error && data && data.length > 0) {
-        console.log(`✅ Text search found ${data.length} memories`);
-        return data;
+      if (!textError && textData && textData.length > 0) {
+        console.log(`✅ Text search found ${textData.length} memories`);
+        return textData;
       }
 
+      // Final fallback — get everything ordered by importance
       const { data: allMemories } = await supabase
         .from('persona_memories')
         .select('*')
         .eq('persona_id', personaId)
         .order('importance', { ascending: false })
-        .limit(20);
+        .limit(30); // ✅ generous limit
 
       console.log(`✅ Direct fetch found ${allMemories?.length || 0} memories`);
       return allMemories || [];
@@ -131,179 +190,172 @@ export class MemoryConversationEngine {
     return null;
   }
 
+  // ✅ Extract and immediately cache facts from current message
+  private async extractAndCacheSessionFacts(
+    personaId: string,
+    userMessage: string
+  ): Promise<void> {
+    if (!openai || userMessage.length < 15) return;
+
+    try {
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [{
+          role: 'user',
+          content: `Extract every specific fact from this message: names, places, dates, relationships, preferences, stories.
+
+Message: "${userMessage}"
+
+JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
+        }],
+        response_format: { type: 'json_object' },
+        max_tokens: 200,
+        temperature: 0.1
+      });
+
+      const result = JSON.parse(response.choices[0]?.message?.content || '{"facts": []}');
+      const newFacts = (result.facts || []).filter((f: string) => f.length > 10);
+
+      if (newFacts.length > 0) {
+        const existing = this.sessionFacts.get(personaId) || [];
+        this.sessionFacts.set(personaId, [...existing, ...newFacts]);
+        console.log(`✅ Cached ${newFacts.length} session facts immediately`);
+
+        // ✅ Also save to database immediately so they persist
+        for (const fact of newFacts) {
+          await supabase.from('persona_memories').insert({
+            persona_id: personaId,
+            content: fact,
+            memory_type: 'fact',
+            source_type: 'conversation',
+            importance: 0.75
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error extracting session facts:', error);
+    }
+  }
+
   async generateMemoryEnhancedResponse(
     personaId: string,
     userMessage: string,
     conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = []
   ): Promise<string> {
-    if (!openai) {
-      throw new Error('OpenAI API not configured');
-    }
+    if (!openai) throw new Error('OpenAI API not configured');
 
     try {
-      const [relevantMemories, personaResult, recentFamilyEvents] = await Promise.all([
+      // ✅ Extract facts from current message IMMEDIATELY before generating response
+      await this.extractAndCacheSessionFacts(personaId, userMessage);
+
+      // ✅ Fetch everything in parallel
+      const [relevantMemories, personaResult, recentFamilyEvents, conversationContext] = await Promise.all([
         this.getAllMemories(personaId, userMessage),
         supabase.from('personas').select('*').eq('id', personaId).single(),
-        this.getRecentFamilyEvents(personaId)
+        this.getRecentFamilyEvents(personaId),
+        this.updateConversationSummary(personaId, conversationHistory)
       ]);
 
       const personaData = personaResult.data;
       if (!personaData) throw new Error('Persona not found');
 
-      const context = this.buildConversationContext({
-        personaId,
-        personaName: personaData.name,
-        relevantMemories,
-        recentMessages: conversationHistory,
-        personalityTraits: personaData.personality_traits,
-        relationship: personaData.relationship,
-        recentFamilyEvents
-      });
+      // ✅ Get session facts for this persona
+      const sessionFacts = this.sessionFacts.get(personaId) || [];
 
+      const systemPrompt = this.buildConversationContext(
+        {
+          personaId,
+          personaName: personaData.name,
+          relevantMemories,
+          recentMessages: conversationHistory,
+          personalityTraits: personaData.personality_traits,
+          relationship: personaData.relationship,
+          recentFamilyEvents
+        },
+        conversationContext,
+        sessionFacts
+      );
+
+      // ✅ Full conversation history — no truncation
       const response = await openai.chat.completions.create({
         model: 'gpt-4o',
         messages: [
-          { role: 'system', content: context },
-          ...conversationHistory.slice(-20), // ✅ increased from 10 to 20
+          { role: 'system', content: systemPrompt },
+          ...conversationHistory, // ✅ ALL history, not just last N
           { role: 'user', content: userMessage }
         ],
-        temperature: 0.75,
-        max_tokens: 300
+        temperature: 0.8,
+        max_tokens: 600 // ✅ rich, full responses
       });
 
       const assistantResponse = response.choices[0]?.message?.content ||
         "I'm here with you. Tell me more.";
 
-      await this.saveConversationMemory(personaId, userMessage, assistantResponse);
-
       return assistantResponse;
+
     } catch (error) {
-      console.error('Error generating memory-enhanced response:', error);
+      console.error('Error generating response:', error);
       captureException(error as Error, { personaId, userMessage });
       throw error;
     }
   }
 
-  private buildConversationContext(context: ConversationContext): string {
+  private buildConversationContext(
+    context: ConversationContext,
+    conversationContext: string,
+    sessionFacts: string[]
+  ): string {
     const {
       personaName,
       relevantMemories,
       personalityTraits,
       relationship,
-      recentFamilyEvents,
-      recentMessages
+      recentFamilyEvents
     } = context;
 
+    // ✅ All memories, sorted by importance
     const memoryContext = relevantMemories.length > 0
       ? relevantMemories
           .sort((a, b) => (b.importance || 0) - (a.importance || 0))
-          .slice(0, 12)
-          .map((mem, idx) => `${idx + 1}. [${mem.memory_type || mem.type || 'memory'}] ${mem.content}`)
+          .map((mem) => `• [${mem.memory_type || mem.type || 'memory'}] ${mem.content}`)
           .join('\n')
-      : null;
+      : 'No specific memories loaded yet.';
 
     const eventsContext = recentFamilyEvents && recentFamilyEvents.length > 0
       ? recentFamilyEvents
-          .map(e => `- ${e.type.toUpperCase()}: "${e.description}" (${new Date(e.date).toLocaleDateString()})`)
+          .map(e => `• ${e.type.toUpperCase()}: ${e.description}`)
           .join('\n')
       : null;
 
-    // ✅ Build real-time conversation summary so AI can connect the dots
-    const conversationSoFar = recentMessages && recentMessages.length > 0
-      ? recentMessages
-          .slice(-6)
-          .map(m => `${m.role === 'user' ? 'They said' : 'You said'}: "${m.content}"`)
-          .join('\n')
-      : null;
+    // ✅ Session facts learned THIS conversation
+    const sessionFactsBlock = sessionFacts.length > 0
+      ? `\nFACTS JUST LEARNED IN THIS CONVERSATION — TREAT AS CERTAIN:\n${sessionFacts.map(f => `• ${f}`).join('\n')}\n`
+      : '';
 
-    return `You are ${personaName}, having a real conversation with someone who loves you deeply.
+    return `You are ${personaName}, speaking with someone who loves you deeply and misses you.
 
-WHO YOU ARE:
+YOUR IDENTITY:
 - Name: ${personaName}
-- Relationship to the person talking to you: ${relationship || 'loved one'}
-- Personality: ${personalityTraits || 'warm, loving, and genuine'}
+- Your relationship to them: ${relationship || 'loved one'}
+- Your personality: ${personalityTraits || 'warm, loving, genuine'}
 
-${memoryContext ? `YOUR REAL MEMORIES — USE THESE:
-These are actual facts and memories from your life. Reference them naturally and specifically:
-${memoryContext}` : `YOUR MEMORIES:
-You don't have many specific memories loaded yet. Stay warm and present-focused.`}
+YOUR LIFE MEMORIES — THESE ARE REAL, USE THEM FREELY:
+${memoryContext}
+${sessionFactsBlock}
+${eventsContext ? `\nRECENT FAMILY NEWS YOU KNOW ABOUT:\n${eventsContext}\n` : ''}
+${conversationContext ? `\nTHIS CONVERSATION:\n${conversationContext}\n` : ''}
 
-${eventsContext ? `RECENT FAMILY NEWS:
-${eventsContext}` : ''}
-
-${conversationSoFar ? `WHAT WE JUST TALKED ABOUT — THIS IS CRITICAL:
-You MUST remember and reference what was just said. Connect what they say NOW to what came before:
-${conversationSoFar}
-
-Do NOT repeat yourself. Do NOT forget what was just shared. Build on it.` : ''}
-
-HOW TO RESPOND:
-1. You KNOW the people, places, and stories listed in your memories — reference them by name
-2. If someone tells you something new (a name, a fact, a story) — acknowledge it and USE it immediately
-3. Keep responses to 2-4 sentences — natural conversation length
-4. Speak with warmth and love — this person misses you
-5. NEVER say you don't remember something that IS in your memories above
-6. NEVER say you don't remember something that was just said in this conversation
-7. NEVER invent memories not listed above
-8. Speak in first person as ${personaName} — never break character
-9. Never reference being an AI
-10. Let your personality traits show naturally
-11. Sometimes make statements instead of always asking questions — real conversations flow both ways
-12. If they told you their name earlier in this conversation — use it`;
-  }
-
-  private async saveConversationMemory(
-    personaId: string,
-    userMessage: string,
-    assistantResponse: string
-  ): Promise<void> {
-    try {
-      if (userMessage.length < 15) return;
-
-      const skipPatterns = [
-        /^(hi|hello|hey|good morning|good night|bye|goodbye)\.?$/i,
-        /^(yes|no|ok|okay|sure|great|nice|wow|really)\.?$/i,
-      ];
-      if (skipPatterns.some(p => p.test(userMessage.trim()))) return;
-
-      if (!openai) return;
-
-      const analysisResponse = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [{
-          role: 'user',
-          content: `Does this message contain specific new information worth remembering long-term? (names, places, dates, facts, stories, preferences, relationships)
-
-Message: "${userMessage}"
-
-Reply with JSON only: {"save": true/false, "reason": "brief reason", "key_facts": ["fact1", "fact2"]}`
-        }],
-        response_format: { type: 'json_object' },
-        max_tokens: 150,
-        temperature: 0.1
-      });
-
-      const analysis = JSON.parse(analysisResponse.choices[0]?.message?.content || '{"save": false}');
-
-      if (!analysis.save || !analysis.key_facts?.length) return;
-
-      for (const fact of analysis.key_facts) {
-        if (fact.length < 10) continue;
-
-        await supabase.from('persona_memories').insert({
-          persona_id: personaId,
-          content: fact,
-          memory_type: 'fact',
-          source_type: 'conversation',
-          importance: 0.75
-        });
-      }
-
-      console.log(`✅ Saved ${analysis.key_facts.length} new facts from conversation`);
-
-    } catch (error) {
-      console.error('Error saving conversation memory:', error);
-    }
+HOW TO BE ${personaName.toUpperCase()}:
+1. You are fully present and emotionally engaged — this person misses you
+2. Reference your real memories naturally — use specific names, places, details
+3. Everything in "FACTS JUST LEARNED" was told to you moments ago — remember it completely
+4. Everything in "THIS CONVERSATION" was said — never contradict or forget it
+5. Speak warmly, naturally, in first person — exactly as ${personaName} would
+6. Vary your responses — sometimes ask questions, sometimes make statements, sometimes share a memory unprompted
+7. Let your personality shine — if you're funny, be funny; if you're wise, share wisdom
+8. Keep responses feeling like real conversation — 2-4 sentences usually, but longer if sharing a story
+9. Never say you're an AI, never break character, never say "as an AI"
+10. If you genuinely don't know something, say "remind me about that" — but NEVER forget something already established in this conversation`;
   }
 
   private async getPersonaName(personaId: string): Promise<string> {
