@@ -132,13 +132,23 @@ function App() {
               <Sparkles className="h-4 w-4" />
               AI-Powered Memory Preservation
             </div>
+
             <h1 className="text-5xl md:text-7xl font-bold text-gray-900 mb-6 leading-tight">
               Keep Their Memory<br />
-              <span className="bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">Alive Forever</span>
+              <span className="bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+                Alive Forever
+              </span>
             </h1>
-            <p className="text-xl md:text-2xl text-gray-600 mb-10 leading-relaxed">
-              Create lifelike AI personas of loved ones. Have meaningful conversations that preserve their voice, personality, and memories.
+
+            {/* ✅ New mission statement — front and center */}
+            <p className="text-xl md:text-2xl text-gray-600 mb-4 leading-relaxed font-medium">
+              The infrastructure for human memory preservation.
             </p>
+            <p className="text-lg md:text-xl text-gray-500 mb-10 leading-relaxed max-w-3xl mx-auto">
+              We give families the ability to keep talking to the people they love —
+              and we give the deceased a voice in the milestones they'll miss.
+            </p>
+
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-12">
               <button
                 onClick={() => user ? setCurrentView('dashboard') : setIsAuthModalOpen(true)}
@@ -152,6 +162,7 @@ function App() {
                 Watch Demo
               </button>
             </div>
+
             <div className="flex flex-wrap justify-center gap-6 text-sm text-gray-600">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
@@ -215,6 +226,18 @@ function App() {
               </div>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* ✅ New mission statement quote section */}
+      <section className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600">
+        <div className="max-w-4xl mx-auto text-center">
+          <div className="text-white/60 text-5xl mb-6">"</div>
+          <p className="text-2xl md:text-3xl font-medium text-white leading-relaxed mb-6">
+            AlwayZ is the infrastructure for human memory preservation — we give families the ability to keep talking to the people they love, and we give the deceased a voice in the milestones they'll miss.
+          </p>
+          <div className="text-white/60 text-5xl mb-8">"</div>
+          <div className="w-16 h-1 bg-white/40 mx-auto rounded-full" />
         </div>
       </section>
 
@@ -290,7 +313,6 @@ function App() {
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
               {personas.map((persona: any) => (
                 <div key={persona.id} className="group bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1">
-                  {/* Photo area */}
                   <div
                     className="aspect-[4/3] bg-gradient-to-br from-blue-500 to-purple-600 relative overflow-hidden cursor-pointer"
                     onClick={() => { setSelectedPersona(persona); setCurrentView('conversation'); }}
@@ -309,14 +331,12 @@ function App() {
                     </div>
                   </div>
 
-                  {/* Card footer */}
                   <div className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-2 text-sm text-gray-500">
                       <Clock className="h-4 w-4" />
                       <span>{new Date(persona.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      {/* ✅ Enrich Memories button */}
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -359,7 +379,6 @@ function App() {
 
   const CreatePersonaFlow = () => {
     const handleTrainingComplete = async () => {
-      console.log('Training completed - fetching fresh persona data');
       try {
         await new Promise(resolve => setTimeout(resolve, 2000));
         const { data: freshPersona } = await supabase
@@ -371,7 +390,6 @@ function App() {
           .single();
 
         if (freshPersona) {
-          console.log('✅ Fresh persona loaded:', freshPersona.name, 'voice_model_id:', freshPersona.voice_model_id);
           setSelectedPersona(freshPersona);
           setConversationType('chat');
           setCurrentView('conversation');
@@ -401,7 +419,6 @@ function App() {
     );
   };
 
-  // ✅ Enrich Persona Flow — opens directly to memory form
   const EnrichPersonaFlow = () => {
     if (!enrichingPersona) {
       setCurrentView('dashboard');
@@ -467,7 +484,6 @@ function App() {
               </div>
 
               <div className="flex items-center gap-3">
-                {/* ✅ Enrich button in conversation view */}
                 <button
                   onClick={() => {
                     setEnrichingPersona(selectedPersona);
