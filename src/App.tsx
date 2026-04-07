@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { HelmetProvider } from 'react-helmet-async';
-import { Heart, Video, Upload, MessageCircle, Shield, Play, Sparkles, Plus, LogOut, Brain, Menu, X, Clock, Users, BookOpen } from 'lucide-react';
+import { Heart, Video, Upload, MessageCircle, Shield, Play, Sparkles, Plus, LogOut, Brain, Menu, X, Clock, Users, BookOpen, Mail } from 'lucide-react';
 import { useAuth } from './hooks/useAuth';
 import { usePersonas } from './hooks/usePersonas';
 import { AuthModal } from './components/AuthModal';
@@ -14,6 +14,7 @@ import { PerformanceMonitor } from './components/PerformanceMonitor';
 import { MemoryViewer } from './components/MemoryViewer';
 import { SurpriseMessage } from './components/SurpriseMessage';
 import { InviteFamily } from './components/InviteFamily';
+import { LegacyLetters } from './components/LegacyLetters';
 import { initializeMonitoring, setUserContext } from './lib/monitoring';
 import { initializeAnalytics, trackPageView } from './lib/analytics';
 import { Toaster } from 'react-hot-toast';
@@ -31,6 +32,7 @@ function App() {
   const [enrichingPersona, setEnrichingPersona] = useState<any>(null);
   const [surprisePersona, setSurprisePersona] = useState<any>(null);
   const [invitePersona, setInvitePersona] = useState<any>(null);
+  const [legacyPersona, setLegacyPersona] = useState<any>(null);
 
   const { user, loading: authLoading, signOut } = useAuth();
   const { personas, sharedPersonas, loading: personasLoading } = usePersonas();
@@ -45,7 +47,6 @@ function App() {
     trackPageView(window.location.pathname);
   }, [currentView]);
 
-  // ✅ Save invite token to localStorage before auth flow so it survives page reload
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const inviteToken = params.get('invite');
@@ -157,34 +158,48 @@ function App() {
           <div className="flex items-center gap-2">
             <p className="text-sm text-white/90 capitalize drop-shadow">{persona.relationship}</p>
             {isShared && (
-              <span className="text-xs bg-white/20 text-white px-2 py-0.5 rounded-full">
-                Shared
-              </span>
+              <span className="text-xs bg-white/20 text-white px-2 py-0.5 rounded-full">Shared</span>
             )}
           </div>
         </div>
       </div>
 
-      <div className="p-4 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          <Clock className="h-4 w-4" />
-          <span>{new Date(persona.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+      <div className="p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <Clock className="h-4 w-4" />
+            <span>{new Date(persona.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+          </div>
+          <button
+            onClick={() => { setSelectedPersona(persona); setCurrentView('conversation'); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-all"
+          >
+            Talk →
+          </button>
         </div>
-        <div className="flex items-center gap-2">
+
+        {/* Action buttons row */}
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={(e) => { e.stopPropagation(); setSurprisePersona(persona); }}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 text-purple-600 rounded-lg text-xs font-semibold hover:bg-purple-100 transition-all"
-            title="Send a surprise message"
           >
             <Sparkles className="h-3.5 w-3.5" />
             Surprise
+          </button>
+
+          <button
+            onClick={(e) => { e.stopPropagation(); setLegacyPersona(persona); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-600 rounded-lg text-xs font-semibold hover:bg-amber-100 transition-all"
+          >
+            <Mail className="h-3.5 w-3.5" />
+            Legacy
           </button>
 
           {!isShared && (
             <button
               onClick={(e) => { e.stopPropagation(); setInvitePersona(persona); }}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-600 rounded-lg text-xs font-semibold hover:bg-green-100 transition-all"
-              title="Invite family members"
             >
               <Users className="h-3.5 w-3.5" />
               Invite
@@ -194,17 +209,9 @@ function App() {
           <button
             onClick={(e) => { e.stopPropagation(); setEnrichingPersona(persona); setCurrentView('enrich-persona'); }}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-pink-50 text-pink-600 rounded-lg text-xs font-semibold hover:bg-pink-100 transition-all"
-            title="Add memories & details"
           >
             <BookOpen className="h-3.5 w-3.5" />
             Enrich
-          </button>
-
-          <button
-            onClick={() => { setSelectedPersona(persona); setCurrentView('conversation'); }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-all"
-          >
-            Talk →
           </button>
         </div>
       </div>
@@ -401,7 +408,6 @@ function App() {
             </div>
           ) : (
             <>
-              {/* Owned personas */}
               {personas.length > 0 && (
                 <div className="mb-12">
                   {sharedPersonas.length > 0 && (
@@ -425,7 +431,6 @@ function App() {
                 </div>
               )}
 
-              {/* Shared personas */}
               {sharedPersonas.length > 0 && (
                 <div>
                   <h2 className="text-xl font-bold text-gray-700 mb-2">Shared With You</h2>
@@ -551,15 +556,13 @@ function App() {
                   <div className="flex items-center gap-2">
                     <p className="text-gray-600 capitalize">{selectedPersona.relationship}</p>
                     {isShared && (
-                      <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-medium">
-                        Shared
-                      </span>
+                      <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-medium">Shared</span>
                     )}
                   </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 flex-wrap justify-end">
                 <button
                   onClick={() => { setEnrichingPersona(selectedPersona); setCurrentView('enrich-persona'); }}
                   className="flex items-center gap-2 px-4 py-2 bg-pink-50 text-pink-600 rounded-xl font-semibold text-sm hover:bg-pink-100 transition-all"
@@ -574,6 +577,14 @@ function App() {
                 >
                   <Sparkles className="h-4 w-4" />
                   Surprise
+                </button>
+
+                <button
+                  onClick={() => setLegacyPersona(selectedPersona)}
+                  className="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-600 rounded-xl font-semibold text-sm hover:bg-amber-100 transition-all"
+                >
+                  <Mail className="h-4 w-4" />
+                  Legacy
                 </button>
 
                 {!isShared && (
@@ -681,6 +692,13 @@ function App() {
             <InviteFamily
               persona={invitePersona}
               onClose={() => setInvitePersona(null)}
+            />
+          )}
+
+          {legacyPersona && (
+            <LegacyLetters
+              persona={legacyPersona}
+              onClose={() => setLegacyPersona(null)}
             />
           )}
         </div>
