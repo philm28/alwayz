@@ -45,14 +45,17 @@ function App() {
     trackPageView(window.location.pathname);
   }, [currentView]);
 
-  // ✅ Auto-redirect to dashboard if invite token in URL
+  // ✅ Save invite token to localStorage before auth flow so it survives page reload
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const inviteToken = params.get('invite');
-    if (inviteToken && user) {
-      setCurrentView('dashboard');
-    } else if (inviteToken && !user) {
-      setIsAuthModalOpen(true);
+    if (inviteToken) {
+      localStorage.setItem('pendingInviteToken', inviteToken);
+      if (user) {
+        setCurrentView('dashboard');
+      } else {
+        setIsAuthModalOpen(true);
+      }
     }
   }, [user]);
 
@@ -135,7 +138,6 @@ function App() {
     </nav>
   );
 
-  // ✅ Reusable persona card component
   const PersonaCard = ({ persona, isShared = false }: { persona: any, isShared?: boolean }) => (
     <div className="group bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1">
       <div
@@ -169,7 +171,6 @@ function App() {
           <span>{new Date(persona.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
         </div>
         <div className="flex items-center gap-2">
-          {/* ✅ Surprise button */}
           <button
             onClick={(e) => { e.stopPropagation(); setSurprisePersona(persona); }}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 text-purple-600 rounded-lg text-xs font-semibold hover:bg-purple-100 transition-all"
@@ -179,7 +180,6 @@ function App() {
             Surprise
           </button>
 
-          {/* ✅ Invite button — only for owners */}
           {!isShared && (
             <button
               onClick={(e) => { e.stopPropagation(); setInvitePersona(persona); }}
@@ -191,7 +191,6 @@ function App() {
             </button>
           )}
 
-          {/* ✅ Enrich button */}
           <button
             onClick={(e) => { e.stopPropagation(); setEnrichingPersona(persona); setCurrentView('enrich-persona'); }}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-pink-50 text-pink-600 rounded-lg text-xs font-semibold hover:bg-pink-100 transition-all"
@@ -402,7 +401,7 @@ function App() {
             </div>
           ) : (
             <>
-              {/* ✅ Owned personas */}
+              {/* Owned personas */}
               {personas.length > 0 && (
                 <div className="mb-12">
                   {sharedPersonas.length > 0 && (
@@ -426,7 +425,7 @@ function App() {
                 </div>
               )}
 
-              {/* ✅ Shared personas */}
+              {/* Shared personas */}
               {sharedPersonas.length > 0 && (
                 <div>
                   <h2 className="text-xl font-bold text-gray-700 mb-2">Shared With You</h2>
@@ -665,10 +664,12 @@ function App() {
           <AuthModal
             isOpen={isAuthModalOpen}
             onClose={() => setIsAuthModalOpen(false)}
-            onSuccess={() => { setIsAuthModalOpen(false); setCurrentView('dashboard'); }}
+            onSuccess={() => {
+              setIsAuthModalOpen(false);
+              setCurrentView('dashboard');
+            }}
           />
 
-          {/* ✅ Modals */}
           {surprisePersona && (
             <SurpriseMessage
               persona={surprisePersona}
