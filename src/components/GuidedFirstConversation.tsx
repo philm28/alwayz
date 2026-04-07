@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Heart, X, ChevronRight, Mic, Volume2 } from 'lucide-react';
+import { Heart, X, ChevronRight, Mic, Volume2, Calendar } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 
@@ -49,11 +49,14 @@ const TIPS = [
 
 export function GuidedFirstConversation({ persona, onBegin, onSkip }: GuidedFirstConversationProps) {
   const { user } = useAuth();
-  const [phase, setPhase] = useState<'breathing' | 'intro' | 'tips' | 'ready'>('breathing');
+  const [phase, setPhase] = useState<'breathing' | 'date' | 'intro' | 'tips' | 'ready'>('breathing');
   const [breathingIndex, setBreathingIndex] = useState(0);
   const [displayedText, setDisplayedText] = useState('');
   const [starterIndex] = useState(Math.floor(Math.random() * CONVERSATION_STARTERS.length));
   const [isVisible, setIsVisible] = useState(false);
+  const [dateOfPassing, setDateOfPassing] = useState('');
+  const [isSavingDate, setIsSavingDate] = useState(false);
+  const [needsDate, setNeedsDate] = useState(false);
 
   useEffect(() => {
     setTimeout(() => setIsVisible(true), 100);
@@ -65,7 +68,6 @@ export function GuidedFirstConversation({ persona, onBegin, onSkip }: GuidedFirs
       setBreathingIndex(i);
       setDisplayedText('');
 
-      // Typewriter effect
       const text = BREATHING_STEPS[i].text;
       for (let j = 0; j <= text.length; j++) {
         await new Promise(resolve => setTimeout(resolve, 40));
@@ -75,8 +77,37 @@ export function GuidedFirstConversation({ persona, onBegin, onSkip }: GuidedFirs
       await new Promise(resolve => setTimeout(resolve, BREATHING_STEPS[i].duration));
     }
 
-    // Move to intro phase
-    setPhase('intro');
+    // ✅ Check if date of passing is already set
+    const hasDate = persona.date_of_passing;
+    if (hasDate) {
+      setPhase('intro');
+    } else {
+      setNeedsDate(true);
+      setPhase('date');
+    }
+  };
+
+  const saveDateOfPassing = async () => {
+    if (!dateOfPassing) {
+      setPhase('intro');
+      return;
+    }
+
+    setIsSavingDate(true);
+    try {
+      await supabase
+        .from('personas')
+        .update({ date_of_passing: dateOfPassing })
+        .eq('id', persona.id);
+
+      // Update local persona object
+      persona.date_of_passing = dateOfPassing;
+    } catch (error) {
+      console.error('Error saving date:', error);
+    } finally {
+      setIsSavingDate(false);
+      setPhase('intro');
+    }
   };
 
   const markFirstConversationComplete = async () => {
@@ -113,14 +144,12 @@ export function GuidedFirstConversation({ persona, onBegin, onSkip }: GuidedFirs
       {phase === 'breathing' && (
         <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-blue-950 to-purple-950 flex items-center justify-center">
           <div className="text-center px-8 max-w-lg">
-            {/* Pulsing heart */}
             <div className="relative mb-12">
               <div className="w-24 h-24 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto animate-pulse">
                 <div className="w-16 h-16 bg-blue-500/30 rounded-full flex items-center justify-center">
                   <Heart className="h-8 w-8 text-blue-400" fill="currentColor" />
                 </div>
               </div>
-              {/* Ripple rings */}
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="w-32 h-32 rounded-full border border-blue-500/20 animate-ping" />
               </div>
@@ -132,7 +161,6 @@ export function GuidedFirstConversation({ persona, onBegin, onSkip }: GuidedFirs
             </p>
           </div>
 
-          {/* Skip button */}
           <button
             onClick={handleSkip}
             className="absolute bottom-8 right-8 text-white/30 hover:text-white/60 text-sm transition-colors"
@@ -142,12 +170,64 @@ export function GuidedFirstConversation({ persona, onBegin, onSkip }: GuidedFirs
         </div>
       )}
 
+      {/* ✅ Date of passing phase */}
+      {phase === 'date' && (
+        <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-blue-950 to-purple-950 flex items-center justify-center p-8">
+          <div className="max-w-md w-full text-center">
+            <div className="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Calendar className="h-8 w-8 text-blue-400" />
+            </div>
+
+            <h3 className="text-2xl font-bold text-white mb-3">
+              One gentle question
+            </h3>
+            <p className="text-white/60 leading-relaxed mb-8">
+              When did you lose {persona.name}? This helps us understand
+              where you are in your journey and support you better.
+            </p>
+
+            <div className="bg-white/10 backdrop-blur rounded-2xl p-6 mb-6 border border-white/10">
+              <label className="block text-white/60 text-sm mb-3">Date of passing</label>
+              <input
+                type="date"
+                value={dateOfPassing}
+                max={new Date().toISOString().split('T')[0]}
+                onChange={(e) => setDateOfPassing(e.target.value)}
+                className="w-full bg-white/10 border border-white/20 text-white rounded-xl px-4 py-3 focus:outline-none focus:border-blue-400 transition-all"
+              />
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={saveDateOfPassing}
+                disabled={isSavingDate}
+                className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white px-8 py-4 rounded-2xl font-semibold text-lg hover:shadow-2xl transition-all flex items-center justify-center gap-2"
+              >
+                {isSavingDate ? (
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
+                ) : (
+                  <>
+                    Continue
+                    <ChevronRight className="h-5 w-5" />
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => setPhase('intro')}
+                className="text-white/40 hover:text-white/60 text-sm transition-colors py-2"
+              >
+                I'd rather not share this
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Intro phase */}
       {phase === 'intro' && (
         <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-blue-950 to-purple-950 flex items-center justify-center p-8">
           <div className="max-w-lg w-full text-center">
 
-            {/* Persona avatar */}
             <div className="relative mb-8 inline-block">
               <div className="w-28 h-28 rounded-full overflow-hidden border-4 border-white/20 shadow-2xl mx-auto">
                 {persona.avatar_url ? (
@@ -166,7 +246,6 @@ export function GuidedFirstConversation({ persona, onBegin, onSkip }: GuidedFirs
             <h2 className="text-3xl font-bold text-white mb-3">{persona.name}</h2>
             <p className="text-blue-300 text-lg mb-8 capitalize">{persona.relationship}</p>
 
-            {/* Opening line */}
             <div className="bg-white/10 backdrop-blur rounded-2xl p-6 mb-8 text-left border border-white/10">
               <div className="flex items-center gap-2 mb-3">
                 <Volume2 className="h-4 w-4 text-blue-400" />
@@ -212,7 +291,6 @@ export function GuidedFirstConversation({ persona, onBegin, onSkip }: GuidedFirs
                 <div
                   key={i}
                   className="bg-white/10 backdrop-blur rounded-2xl p-5 border border-white/10 flex items-start gap-4"
-                  style={{ animationDelay: `${i * 100}ms` }}
                 >
                   <span className="text-2xl">{tip.icon}</span>
                   <div>
