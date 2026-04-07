@@ -13,6 +13,7 @@ import { SEOHead } from './components/SEOHead';
 import { PerformanceMonitor } from './components/PerformanceMonitor';
 import { MemoryViewer } from './components/MemoryViewer';
 import { SurpriseMessage } from './components/SurpriseMessage';
+import { InviteFamily } from './components/InviteFamily';
 import { initializeMonitoring, setUserContext } from './lib/monitoring';
 import { initializeAnalytics, trackPageView } from './lib/analytics';
 import { Toaster } from 'react-hot-toast';
@@ -29,9 +30,10 @@ function App() {
   const [conversationType, setConversationType] = useState<'chat' | 'video_call' | 'voice_call'>('chat');
   const [enrichingPersona, setEnrichingPersona] = useState<any>(null);
   const [surprisePersona, setSurprisePersona] = useState<any>(null);
+  const [invitePersona, setInvitePersona] = useState<any>(null);
 
   const { user, loading: authLoading, signOut } = useAuth();
-  const { personas, loading: personasLoading } = usePersonas();
+  const { personas, sharedPersonas, loading: personasLoading } = usePersonas();
 
   useEffect(() => {
     if (user) {
@@ -42,6 +44,17 @@ function App() {
   useEffect(() => {
     trackPageView(window.location.pathname);
   }, [currentView]);
+
+  // ✅ Auto-redirect to dashboard if invite token in URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const inviteToken = params.get('invite');
+    if (inviteToken && user) {
+      setCurrentView('dashboard');
+    } else if (inviteToken && !user) {
+      setIsAuthModalOpen(true);
+    }
+  }, [user]);
 
   const Navigation = () => (
     <nav className="bg-white/80 backdrop-blur-lg shadow-sm border-b border-gray-100 sticky top-0 z-50">
@@ -120,6 +133,83 @@ function App() {
         </div>
       )}
     </nav>
+  );
+
+  // ✅ Reusable persona card component
+  const PersonaCard = ({ persona, isShared = false }: { persona: any, isShared?: boolean }) => (
+    <div className="group bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1">
+      <div
+        className="aspect-[4/3] bg-gradient-to-br from-blue-500 to-purple-600 relative overflow-hidden cursor-pointer"
+        onClick={() => { setSelectedPersona(persona); setCurrentView('conversation'); }}
+      >
+        {persona.avatar_url ? (
+          <img src={persona.avatar_url} alt={persona.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+        ) : (
+          <div className="flex items-center justify-center h-full">
+            <Heart className="h-20 w-20 text-white opacity-90 group-hover:scale-110 transition-transform" fill="currentColor" />
+          </div>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent opacity-60 group-hover:opacity-80 transition-opacity" />
+        <div className="absolute bottom-4 left-4 right-4">
+          <h3 className="text-2xl font-bold text-white mb-1 drop-shadow-lg">{persona.name}</h3>
+          <div className="flex items-center gap-2">
+            <p className="text-sm text-white/90 capitalize drop-shadow">{persona.relationship}</p>
+            {isShared && (
+              <span className="text-xs bg-white/20 text-white px-2 py-0.5 rounded-full">
+                Shared
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="p-4 flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm text-gray-500">
+          <Clock className="h-4 w-4" />
+          <span>{new Date(persona.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* ✅ Surprise button */}
+          <button
+            onClick={(e) => { e.stopPropagation(); setSurprisePersona(persona); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 text-purple-600 rounded-lg text-xs font-semibold hover:bg-purple-100 transition-all"
+            title="Send a surprise message"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Surprise
+          </button>
+
+          {/* ✅ Invite button — only for owners */}
+          {!isShared && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setInvitePersona(persona); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-600 rounded-lg text-xs font-semibold hover:bg-green-100 transition-all"
+              title="Invite family members"
+            >
+              <Users className="h-3.5 w-3.5" />
+              Invite
+            </button>
+          )}
+
+          {/* ✅ Enrich button */}
+          <button
+            onClick={(e) => { e.stopPropagation(); setEnrichingPersona(persona); setCurrentView('enrich-persona'); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-pink-50 text-pink-600 rounded-lg text-xs font-semibold hover:bg-pink-100 transition-all"
+            title="Add memories & details"
+          >
+            <BookOpen className="h-3.5 w-3.5" />
+            Enrich
+          </button>
+
+          <button
+            onClick={() => { setSelectedPersona(persona); setCurrentView('conversation'); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-all"
+          >
+            Talk →
+          </button>
+        </div>
+      </div>
+    </div>
   );
 
   const LandingPage = () => (
@@ -229,7 +319,6 @@ function App() {
         </div>
       </section>
 
-      {/* Mission statement quote section */}
       <section className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600">
         <div className="max-w-4xl mx-auto text-center">
           <div className="text-white/60 text-5xl mb-6">"</div>
@@ -271,6 +360,8 @@ function App() {
       );
     }
 
+    const allPersonas = [...personas, ...sharedPersonas];
+
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/30">
         <SEOHead title="Dashboard" />
@@ -281,7 +372,7 @@ function App() {
               <h1 className="text-4xl font-bold text-gray-900 mb-3">Your Personas</h1>
               <p className="text-lg text-gray-600">Connect with AI recreations of your loved ones</p>
             </div>
-            {personas.length > 0 && (
+            {allPersonas.length > 0 && (
               <button
                 onClick={() => setCurrentView('create-persona')}
                 className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition-all transform hover:scale-105"
@@ -292,7 +383,7 @@ function App() {
             )}
           </div>
 
-          {personas.length === 0 ? (
+          {allPersonas.length === 0 ? (
             <div className="bg-white rounded-3xl shadow-xl border border-gray-100 p-16 text-center">
               <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-8 shadow-lg">
                 <Heart className="h-12 w-12 text-white" fill="currentColor" />
@@ -310,79 +401,44 @@ function App() {
               </button>
             </div>
           ) : (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {personas.map((persona: any) => (
-                <div key={persona.id} className="group bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1">
-                  <div
-                    className="aspect-[4/3] bg-gradient-to-br from-blue-500 to-purple-600 relative overflow-hidden cursor-pointer"
-                    onClick={() => { setSelectedPersona(persona); setCurrentView('conversation'); }}
-                  >
-                    {persona.avatar_url ? (
-                      <img src={persona.avatar_url} alt={persona.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                    ) : (
-                      <div className="flex items-center justify-center h-full">
-                        <Heart className="h-20 w-20 text-white opacity-90 group-hover:scale-110 transition-transform" fill="currentColor" />
+            <>
+              {/* ✅ Owned personas */}
+              {personas.length > 0 && (
+                <div className="mb-12">
+                  {sharedPersonas.length > 0 && (
+                    <h2 className="text-xl font-bold text-gray-700 mb-6">Your Personas</h2>
+                  )}
+                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {personas.map((persona: any) => (
+                      <PersonaCard key={persona.id} persona={persona} isShared={false} />
+                    ))}
+                    <button
+                      onClick={() => setCurrentView('create-persona')}
+                      className="group bg-white rounded-3xl shadow-lg border-2 border-dashed border-gray-300 p-12 hover:border-blue-500 hover:shadow-2xl transition-all duration-300 hover:bg-gradient-to-br hover:from-blue-50 hover:to-purple-50 transform hover:-translate-y-1 flex flex-col items-center justify-center min-h-[320px]"
+                    >
+                      <div className="w-16 h-16 bg-gradient-to-br from-blue-100 to-purple-100 group-hover:from-blue-500 group-hover:to-purple-600 rounded-full flex items-center justify-center mb-4 transition-all">
+                        <Plus className="h-8 w-8 text-blue-600 group-hover:text-white transition-colors" />
                       </div>
-                    )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent opacity-60 group-hover:opacity-80 transition-opacity" />
-                    <div className="absolute bottom-4 left-4 right-4">
-                      <h3 className="text-2xl font-bold text-white mb-1 drop-shadow-lg">{persona.name}</h3>
-                      <p className="text-sm text-white/90 capitalize drop-shadow">{persona.relationship}</p>
-                    </div>
-                  </div>
-
-                  <div className="p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-sm text-gray-500">
-                      <Clock className="h-4 w-4" />
-                      <span>{new Date(persona.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {/* ✅ Surprise Message button */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSurprisePersona(persona);
-                        }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 text-purple-600 rounded-lg text-xs font-semibold hover:bg-purple-100 transition-all"
-                        title="Send a surprise message"
-                      >
-                        <Sparkles className="h-3.5 w-3.5" />
-                        Surprise
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEnrichingPersona(persona);
-                          setCurrentView('enrich-persona');
-                        }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-pink-50 text-pink-600 rounded-lg text-xs font-semibold hover:bg-pink-100 transition-all"
-                        title="Add memories & details"
-                      >
-                        <BookOpen className="h-3.5 w-3.5" />
-                        Enrich
-                      </button>
-                      <button
-                        onClick={() => { setSelectedPersona(persona); setCurrentView('conversation'); }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-all"
-                      >
-                        Talk →
-                      </button>
-                    </div>
+                      <span className="text-xl font-bold text-gray-600 group-hover:text-blue-600 transition-colors">Create New Persona</span>
+                      <span className="text-sm text-gray-500 mt-2">Preserve another memory</span>
+                    </button>
                   </div>
                 </div>
-              ))}
+              )}
 
-              <button
-                onClick={() => setCurrentView('create-persona')}
-                className="group bg-white rounded-3xl shadow-lg border-2 border-dashed border-gray-300 p-12 hover:border-blue-500 hover:shadow-2xl transition-all duration-300 hover:bg-gradient-to-br hover:from-blue-50 hover:to-purple-50 transform hover:-translate-y-1 flex flex-col items-center justify-center min-h-[320px]"
-              >
-                <div className="w-16 h-16 bg-gradient-to-br from-blue-100 to-purple-100 group-hover:from-blue-500 group-hover:to-purple-600 rounded-full flex items-center justify-center mb-4 transition-all">
-                  <Plus className="h-8 w-8 text-blue-600 group-hover:text-white transition-colors" />
+              {/* ✅ Shared personas */}
+              {sharedPersonas.length > 0 && (
+                <div>
+                  <h2 className="text-xl font-bold text-gray-700 mb-2">Shared With You</h2>
+                  <p className="text-sm text-gray-500 mb-6">Personas that family members have invited you to</p>
+                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {sharedPersonas.map((persona: any) => (
+                      <PersonaCard key={persona.id} persona={persona} isShared={true} />
+                    ))}
+                  </div>
                 </div>
-                <span className="text-xl font-bold text-gray-600 group-hover:text-blue-600 transition-colors">Create New Persona</span>
-                <span className="text-sm text-gray-500 mt-2">Preserve another memory</span>
-              </button>
-            </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -469,6 +525,8 @@ function App() {
       return null;
     }
 
+    const isShared = selectedPersona.isShared;
+
     return (
       <div className="min-h-screen bg-gray-50">
         <Navigation />
@@ -491,16 +549,20 @@ function App() {
                 </div>
                 <div>
                   <h1 className="text-2xl font-bold text-gray-900">{selectedPersona.name}</h1>
-                  <p className="text-gray-600 capitalize">{selectedPersona.relationship}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-gray-600 capitalize">{selectedPersona.relationship}</p>
+                    {isShared && (
+                      <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-medium">
+                        Shared
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => {
-                    setEnrichingPersona(selectedPersona);
-                    setCurrentView('enrich-persona');
-                  }}
+                  onClick={() => { setEnrichingPersona(selectedPersona); setCurrentView('enrich-persona'); }}
                   className="flex items-center gap-2 px-4 py-2 bg-pink-50 text-pink-600 rounded-xl font-semibold text-sm hover:bg-pink-100 transition-all"
                 >
                   <BookOpen className="h-4 w-4" />
@@ -514,6 +576,16 @@ function App() {
                   <Sparkles className="h-4 w-4" />
                   Surprise
                 </button>
+
+                {!isShared && (
+                  <button
+                    onClick={() => setInvitePersona(selectedPersona)}
+                    className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-600 rounded-xl font-semibold text-sm hover:bg-green-100 transition-all"
+                  >
+                    <Users className="h-4 w-4" />
+                    Invite Family
+                  </button>
+                )}
 
                 <div className="flex gap-2 bg-white rounded-lg p-1 shadow-sm">
                   <button
@@ -596,11 +668,18 @@ function App() {
             onSuccess={() => { setIsAuthModalOpen(false); setCurrentView('dashboard'); }}
           />
 
-          {/* ✅ Surprise Message Modal */}
+          {/* ✅ Modals */}
           {surprisePersona && (
             <SurpriseMessage
               persona={surprisePersona}
               onClose={() => setSurprisePersona(null)}
+            />
+          )}
+
+          {invitePersona && (
+            <InviteFamily
+              persona={invitePersona}
+              onClose={() => setInvitePersona(null)}
             />
           )}
         </div>
