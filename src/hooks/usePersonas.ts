@@ -16,14 +16,20 @@ export function usePersonas() {
     }
   }, [user])
 
-  // ✅ Check for invite token in URL and auto-accept
+  // ✅ Check both URL and localStorage for invite token
   const handleInviteToken = async () => {
     const params = new URLSearchParams(window.location.search);
-    const inviteToken = params.get('invite');
+    const urlToken = params.get('invite');
+    const storedToken = localStorage.getItem('pendingInviteToken');
+    const inviteToken = urlToken || storedToken;
+
     if (!inviteToken || !user) return;
 
+    // ✅ Clear immediately so it doesn't re-fire
+    localStorage.removeItem('pendingInviteToken');
+    window.history.replaceState({}, '', window.location.pathname);
+
     try {
-      // Find the invite
       const { data: invite, error } = await supabase
         .from('persona_collaborators')
         .select('*, personas(*)')
@@ -32,7 +38,19 @@ export function usePersonas() {
         .single();
 
       if (error || !invite) {
-        toast.error('This invite link is invalid or has already been used.');
+        // ✅ Check if already accepted
+        const { data: existing } = await supabase
+          .from('persona_collaborators')
+          .select('*, personas(*)')
+          .eq('invite_token', inviteToken)
+          .eq('status', 'accepted')
+          .single();
+
+        if (existing) {
+          toast.success(`You already have access to ${existing.personas?.name}'s memories! 💙`);
+        } else {
+          toast.error('This invite link is invalid or has expired.');
+        }
         return;
       }
 
@@ -49,11 +67,6 @@ export function usePersonas() {
       if (updateError) throw updateError;
 
       toast.success(`You now have access to ${invite.personas?.name}'s memories! 💙`);
-
-      // Clean up URL
-      window.history.replaceState({}, '', window.location.pathname);
-
-      // Refresh personas
       await fetchPersonas();
 
     } catch (error) {
@@ -99,7 +112,7 @@ export function usePersonas() {
       setPersonas(ownedData || []);
       setSharedPersonas(sharedData);
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching personas:', error);
 
       if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
