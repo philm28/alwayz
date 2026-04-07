@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Brain, CheckCircle, Clock, AlertCircle, Zap, Heart, Upload, MessageCircle, BookOpen, Plus, Mic, StopCircle, Globe, X, ChevronRight, Save } from 'lucide-react';
+import { Brain, CheckCircle, Clock, AlertCircle, Zap, Heart, Upload, MessageCircle, BookOpen, Plus, Mic, StopCircle, Globe, X, ChevronRight, Save, Calendar } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -9,7 +9,7 @@ interface PersonaTrainingProps {
   personaId?: string;
   onTrainingComplete?: () => void;
   onComplete?: () => void;
-  startAtMemories?: boolean; // ✅ allows opening directly to memory form
+  startAtMemories?: boolean;
 }
 
 interface TrainingStep {
@@ -25,6 +25,7 @@ interface PersonaFormData {
   relationship: string;
   gender: 'male' | 'female' | '';
   description: string;
+  dateOfPassing: string;
 }
 
 interface Memory {
@@ -65,7 +66,7 @@ export function PersonaTraining({
   const [personaName, setPersonaName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [formData, setFormData] = useState<PersonaFormData>({
-    name: '', relationship: '', gender: '', description: ''
+    name: '', relationship: '', gender: '', description: '', dateOfPassing: ''
   });
 
   // Memory form state
@@ -92,12 +93,11 @@ export function PersonaTraining({
   const [overallProgress, setOverallProgress] = useState(0);
   const [isTraining, setIsTraining] = useState(false);
 
-  // Load persona name if we start at memories
   useEffect(() => {
     if (initialPersonaId) {
       supabase
         .from('personas')
-        .select('name, personality_traits')
+        .select('name, personality_traits, date_of_passing')
         .eq('id', initialPersonaId)
         .single()
         .then(({ data }) => {
@@ -142,7 +142,6 @@ export function PersonaTraining({
     }
   };
 
-  // ✅ Auto-save traits to Supabase immediately
   const saveTraitsToDb = useCallback(async (traits: string[], styles: string[]) => {
     if (!personaId) return;
     const all = [...traits, ...styles];
@@ -152,7 +151,6 @@ export function PersonaTraining({
       .eq('id', personaId);
   }, [personaId]);
 
-  // ✅ Auto-save a single memory to Supabase immediately
   const saveMemoryToDb = useCallback(async (memory: Memory) => {
     if (!personaId) return;
     const { error } = await supabase
@@ -289,7 +287,6 @@ export function PersonaTraining({
         const summary = aiData.choices[0]?.message?.content || '';
         setFetchedUrlContent(summary);
 
-        // ✅ Auto-save URL content immediately
         if (personaId && summary) {
           await supabase.from('persona_memories').insert({
             persona_id: personaId,
@@ -383,6 +380,8 @@ export function PersonaTraining({
           relationship: formData.relationship,
           gender: formData.gender,
           description: formData.description.trim() || null,
+          // ✅ Save date of passing if provided
+          date_of_passing: formData.dateOfPassing || null,
           status: 'training',
           training_progress: 0
         })
@@ -477,6 +476,27 @@ export function PersonaTraining({
             </div>
           </div>
 
+          {/* ✅ Date of Passing field */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Date of Passing
+              <span className="text-gray-400 font-normal ml-2">(Optional)</span>
+            </label>
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="date"
+                value={formData.dateOfPassing}
+                max={new Date().toISOString().split('T')[0]}
+                onChange={(e) => setFormData({ ...formData, dateOfPassing: e.target.value })}
+                className="w-full pl-9 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+              />
+            </div>
+            <p className="text-xs text-gray-400 mt-1">
+              Helps the persona understand where you are in your healing journey
+            </p>
+          </div>
+
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">A few words about them (Optional)</label>
             <textarea
@@ -558,7 +578,6 @@ export function PersonaTraining({
   if (currentStep === 'memories') {
     return (
       <div className="space-y-6">
-
         <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
           <div className="w-16 h-16 bg-gradient-to-br from-pink-500 to-rose-500 rounded-full flex items-center justify-center mx-auto mb-4">
             <BookOpen className="h-8 w-8 text-white" />
