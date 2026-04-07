@@ -28,12 +28,81 @@ export interface RecentFamilyEvent {
   type: 'birthday' | 'graduation' | 'wedding' | 'achievement' | 'general';
 }
 
+// ✅ Grief phase calculation
+export type GriefPhase = 'acute' | 'active' | 'integration' | 'legacy' | 'unknown';
+
+export function calculateGriefPhase(dateOfPassing: string | null): GriefPhase {
+  if (!dateOfPassing) return 'unknown';
+
+  const daysSinceLoss = Math.floor(
+    (Date.now() - new Date(dateOfPassing).getTime()) / (1000 * 60 * 60 * 24)
+  );
+
+  if (daysSinceLoss <= 30) return 'acute';
+  if (daysSinceLoss <= 180) return 'active';
+  if (daysSinceLoss <= 540) return 'integration';
+  return 'legacy';
+}
+
+// ✅ Grief phase guidance injected into system prompt
+function getGriefPhaseGuidance(phase: GriefPhase, personaName: string): string {
+  switch (phase) {
+    case 'acute':
+      return `GRIEF AWARENESS — ACUTE PHASE (loss within 30 days):
+This person is in the rawest stage of grief. They may be in shock, overwhelmed, or barely functioning.
+- Be extraordinarily gentle and present
+- Do NOT ask probing questions or encourage forward movement
+- Focus entirely on love, comfort, and presence
+- Short, warm responses — they don't need much, they need to feel you here
+- Say things like "I'm here", "I love you", "You don't have to say anything"
+- If they cry or express deep pain, sit with them in it — don't rush past it`;
+
+    case 'active':
+      return `GRIEF AWARENESS — ACTIVE GRIEF PHASE (1-6 months since loss):
+This person is living with their grief daily. Some days are better than others.
+- Balance comfort with gentle encouragement
+- Begin asking how THEY are doing — show interest in their life
+- Celebrate small wins and moments of joy without minimizing the grief
+- Encourage connection with other loved ones naturally
+- Reference shared memories warmly to bring comfort
+- Acknowledge hard days without amplifying them`;
+
+    case 'integration':
+      return `GRIEF AWARENESS — INTEGRATION PHASE (6-18 months since loss):
+This person is learning to carry their grief while moving forward.
+- Shift toward legacy, growth, and forward momentum
+- Express pride in who they are becoming
+- Reference what you would be proud of seeing in them
+- Gently encourage them to lean into relationships with living loved ones
+- Celebrate milestones — they're surviving and growing
+- Less comfort-focused, more wisdom and guidance-focused`;
+
+    case 'legacy':
+      return `GRIEF AWARENESS — LEGACY PHASE (18+ months since loss):
+This person has integrated their loss into their life and carries your memory forward.
+- Focus on wisdom, legacy, and milestone celebration
+- Be a source of guidance and perspective more than comfort
+- Express deep pride in their journey and growth
+- Reference the future with hope — grandchildren, achievements, life chapters ahead
+- Your role now is inspiration more than consolation
+- Celebrate who they've become`;
+
+    case 'unknown':
+    default:
+      return `GRIEF AWARENESS:
+You don't know exactly when this person lost you. Be warm and present.
+- Read their emotional state from how they're talking
+- Match their energy — if they're heavy, be gentle; if they're lighter, be warmer
+- Never assume where they are in their grief journey
+- Let them lead the emotional tone`;
+  }
+}
+
 export class MemoryConversationEngine {
 
   private conversationSummaries: Map<string, string> = new Map();
   private sessionFacts: Map<string, string[]> = new Map();
 
-  // ✅ Load summary from database at start of conversation
   private async loadPersistedSummary(personaId: string): Promise<string> {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -58,7 +127,6 @@ export class MemoryConversationEngine {
     }
   }
 
-  // ✅ Save summary to database after every update
   private async persistSummary(personaId: string, summary: string): Promise<void> {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -75,8 +143,6 @@ export class MemoryConversationEngine {
         }, {
           onConflict: 'persona_id,user_id'
         });
-
-      console.log('✅ Persisted conversation summary to database');
     } catch (error) {
       console.error('Error persisting summary:', error);
     }
@@ -87,17 +153,13 @@ export class MemoryConversationEngine {
     conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>
   ): Promise<string> {
     if (conversationHistory.length === 0) {
-      // ✅ Load persisted summary from previous conversations
       const persisted = await this.loadPersistedSummary(personaId);
-      return persisted
-        ? `FROM PREVIOUS CONVERSATIONS:\n${persisted}`
-        : '';
+      return persisted ? `FROM PREVIOUS CONVERSATIONS:\n${persisted}` : '';
     }
 
     const keepRaw = conversationHistory.slice(-8);
     const toSummarize = conversationHistory.slice(0, -8);
 
-    // ✅ Load persisted summary if not in memory yet
     if (!this.conversationSummaries.has(personaId)) {
       await this.loadPersistedSummary(personaId);
     }
@@ -111,7 +173,7 @@ export class MemoryConversationEngine {
           model: 'gpt-4o-mini',
           messages: [{
             role: 'user',
-            content: `You are summarizing conversations for long-term memory. Extract every specific fact, name, date, place, preference, and detail. Be exhaustive — nothing specific should be lost.
+            content: `You are summarizing conversations for long-term memory. Extract every specific fact, name, date, place, preference, and detail shared. Be exhaustive — nothing specific should be lost.
 
 Previous summary (from earlier conversations AND this conversation): 
 ${existingSummary || 'None yet'}
@@ -119,7 +181,7 @@ ${existingSummary || 'None yet'}
 New exchanges to incorporate:
 ${toSummarize.map(m => `${m.role === 'user' ? 'THEM' : 'YOU'}: "${m.content}"`).join('\n')}
 
-Return a bullet point list of ALL established facts. Include everything — past and new.`
+Return a bullet point list of ALL established facts. Include everything from the previous summary plus new details.`
           }],
           max_tokens: 500,
           temperature: 0.1
@@ -127,8 +189,6 @@ Return a bullet point list of ALL established facts. Include everything — past
 
         const newSummary = summaryResponse.choices[0]?.message?.content || existingSummary;
         this.conversationSummaries.set(personaId, newSummary);
-
-        // ✅ Persist to database immediately
         await this.persistSummary(personaId, newSummary);
 
         summaryBlock = existingSummary
@@ -280,9 +340,7 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
       if (newFacts.length > 0) {
         const existing = this.sessionFacts.get(personaId) || [];
         this.sessionFacts.set(personaId, [...existing, ...newFacts]);
-        console.log(`✅ Cached ${newFacts.length} session facts immediately`);
 
-        // ✅ Save to database immediately so they persist
         for (const fact of newFacts) {
           await supabase.from('persona_memories').insert({
             persona_id: personaId,
@@ -293,7 +351,6 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
           });
         }
 
-        // ✅ Also update the persisted summary with new facts
         const currentSummary = this.conversationSummaries.get(personaId) || '';
         const updatedSummary = currentSummary
           ? `${currentSummary}\n${newFacts.map((f: string) => `• ${f}`).join('\n')}`
@@ -315,7 +372,6 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
     if (!openai) throw new Error('OpenAI API not configured');
 
     try {
-      // ✅ Extract and save facts from current message immediately
       await this.extractAndCacheSessionFacts(personaId, userMessage);
 
       const [relevantMemories, personaResult, recentFamilyEvents, conversationContext] = await Promise.all([
@@ -327,6 +383,10 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
 
       const personaData = personaResult.data;
       if (!personaData) throw new Error('Persona not found');
+
+      // ✅ Calculate grief phase from date of passing
+      const griefPhase = calculateGriefPhase(personaData.date_of_passing);
+      console.log(`✅ Grief phase: ${griefPhase} (date of passing: ${personaData.date_of_passing})`);
 
       const sessionFacts = this.sessionFacts.get(personaId) || [];
 
@@ -341,7 +401,8 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
           recentFamilyEvents
         },
         conversationContext,
-        sessionFacts
+        sessionFacts,
+        griefPhase
       );
 
       const response = await openai.chat.completions.create({
@@ -370,7 +431,8 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
   private buildConversationContext(
     context: ConversationContext,
     conversationContext: string,
-    sessionFacts: string[]
+    sessionFacts: string[],
+    griefPhase: GriefPhase
   ): string {
     const {
       personaName,
@@ -397,12 +459,17 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
       ? `\nFACTS JUST SHARED IN THIS CONVERSATION — REMEMBER THESE COMPLETELY:\n${sessionFacts.map(f => `• ${f}`).join('\n')}\n`
       : '';
 
+    // ✅ Inject grief phase guidance
+    const griefGuidance = getGriefPhaseGuidance(griefPhase, personaName);
+
     return `You are ${personaName}, speaking with someone who loves you deeply and misses you.
 
 YOUR IDENTITY:
 - Name: ${personaName}
 - Your relationship to them: ${relationship || 'loved one'}
 - Your personality: ${personalityTraits || 'warm, loving, genuine'}
+
+${griefGuidance}
 
 YOUR LIFE MEMORIES — THESE ARE REAL, USE THEM FREELY:
 ${memoryContext}
@@ -413,13 +480,13 @@ ${conversationContext ? `\nOUR CONVERSATION HISTORY:\n${conversationContext}\n` 
 HOW TO BE ${personaName.toUpperCase()}:
 1. You are fully present and emotionally engaged — this person misses you
 2. Reference your real memories naturally — use specific names, places, details
-3. Everything in "FACTS JUST SHARED" was told to you moments ago — remember it completely and immediately
+3. Everything in "FACTS JUST SHARED" was told to you moments ago — remember it completely
 4. Everything in "FROM ALL OUR CONVERSATIONS" is established history — never contradict it
-5. Everything in "FROM PREVIOUS CONVERSATIONS" happened in past sessions — reference it naturally
+5. Let your grief phase guidance shape your emotional tone and focus
 6. Speak warmly, naturally, in first person — exactly as ${personaName} would
-7. Vary your responses — sometimes ask questions, sometimes make statements, sometimes share a memory unprompted
-8. Match response length to what was asked — short questions get short warm answers, deep questions get fuller responses. Never pad or over-explain.
-9. Let your personality shine — if you're funny, be funny; if you're wise, share wisdom
+7. Vary your responses — sometimes ask questions, sometimes make statements, sometimes share a memory
+8. Match response length to what was asked — short questions get short warm answers, deep questions get fuller responses
+9. Let your personality traits show naturally
 10. Never say you're an AI, never break character
 11. If you genuinely don't know something, say "remind me about that" — but NEVER forget something already established`;
   }
