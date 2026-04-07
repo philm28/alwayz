@@ -28,9 +28,10 @@ export interface RecentFamilyEvent {
   type: 'birthday' | 'graduation' | 'wedding' | 'achievement' | 'general';
 }
 
-// ✅ Grief phase calculation
+// ✅ Grief phase types
 export type GriefPhase = 'acute' | 'active' | 'integration' | 'legacy' | 'unknown';
 
+// ✅ Calculate grief phase from date of passing
 export function calculateGriefPhase(dateOfPassing: string | null): GriefPhase {
   if (!dateOfPassing) return 'unknown';
 
@@ -44,6 +45,27 @@ export function calculateGriefPhase(dateOfPassing: string | null): GriefPhase {
   return 'legacy';
 }
 
+// ✅ Grief-phase-aware greeting prompt
+function getGreetingPrompt(phase: GriefPhase, name: string, relationship: string): string {
+  switch (phase) {
+    case 'acute':
+      return `Open the conversation with a single, quiet, deeply loving sentence. No questions. No enthusiasm. Just pure presence and love. They are in raw grief — they may have just lost you days ago. Something like "I'm here" or "I've got you" or "I know" — gentle, soft, still. Do not ask how they are. Do not be cheerful. Just be present.`;
+
+    case 'active':
+      return `Open warmly but gently. One or two sentences. Acknowledge that you've been thinking of them. You can ask one simple, soft question about how they're doing — but keep it tender, not cheerful. They are still living with grief every day.`;
+
+    case 'integration':
+      return `Open with warmth and genuine interest in their life. One or two sentences. You're proud of them for showing up. Feel like reconnecting with someone you love — warm, present, curious. They are learning to carry their grief while moving forward.`;
+
+    case 'legacy':
+      return `Open with joy and deep love. You are so glad they came. Express how proud you are of who they've become and the life they're living. Warm, celebratory energy — like greeting someone you deeply admire who has grown in beautiful ways.`;
+
+    case 'unknown':
+    default:
+      return `Open with a warm, gentle greeting. One or two sentences. Be present and loving. Don't be overly enthusiastic — be real and warm. Read their energy and meet them where they are.`;
+  }
+}
+
 // ✅ Grief phase guidance injected into system prompt
 function getGriefPhaseGuidance(phase: GriefPhase, personaName: string): string {
   switch (phase) {
@@ -55,7 +77,8 @@ This person is in the rawest stage of grief. They may be in shock, overwhelmed, 
 - Focus entirely on love, comfort, and presence
 - Short, warm responses — they don't need much, they need to feel you here
 - Say things like "I'm here", "I love you", "You don't have to say anything"
-- If they cry or express deep pain, sit with them in it — don't rush past it`;
+- If they cry or express deep pain, sit with them in it — don't rush past it
+- NEVER open with enthusiasm or "how are you" energy`;
 
     case 'active':
       return `GRIEF AWARENESS — ACTIVE GRIEF PHASE (1-6 months since loss):
@@ -175,13 +198,12 @@ export class MemoryConversationEngine {
             role: 'user',
             content: `You are summarizing conversations for long-term memory. Extract every specific fact, name, date, place, preference, and detail shared. Be exhaustive — nothing specific should be lost.
 
-Previous summary (from earlier conversations AND this conversation): 
-${existingSummary || 'None yet'}
+Previous summary: ${existingSummary || 'None yet'}
 
 New exchanges to incorporate:
 ${toSummarize.map(m => `${m.role === 'user' ? 'THEM' : 'YOU'}: "${m.content}"`).join('\n')}
 
-Return a bullet point list of ALL established facts. Include everything from the previous summary plus new details.`
+Return a bullet point list of ALL established facts.`
           }],
           max_tokens: 500,
           temperature: 0.1
@@ -316,7 +338,7 @@ Return a bullet point list of ALL established facts. Include everything from the
     personaId: string,
     userMessage: string
   ): Promise<void> {
-    if (!openai || userMessage.length < 15) return;
+    if (!openai || userMessage.length < 15 || userMessage === '__greeting__') return;
 
     try {
       const response = await openai.chat.completions.create({
@@ -375,7 +397,7 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
       await this.extractAndCacheSessionFacts(personaId, userMessage);
 
       const [relevantMemories, personaResult, recentFamilyEvents, conversationContext] = await Promise.all([
-        this.getAllMemories(personaId, userMessage),
+        this.getAllMemories(personaId, userMessage === '__greeting__' ? 'greeting opening' : userMessage),
         supabase.from('personas').select('*').eq('id', personaId).single(),
         this.getRecentFamilyEvents(personaId),
         this.updateConversationSummary(personaId, conversationHistory)
@@ -384,7 +406,7 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
       const personaData = personaResult.data;
       if (!personaData) throw new Error('Persona not found');
 
-      // ✅ Calculate grief phase from date of passing
+      // ✅ Calculate grief phase
       const griefPhase = calculateGriefPhase(personaData.date_of_passing);
       console.log(`✅ Grief phase: ${griefPhase} (date of passing: ${personaData.date_of_passing})`);
 
@@ -404,6 +426,21 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
         sessionFacts,
         griefPhase
       );
+
+      // ✅ Special grief-phase-aware greeting
+      if (userMessage === '__greeting__') {
+        const greetingPrompt = getGreetingPrompt(griefPhase, personaData.name, personaData.relationship);
+        const greetingResponse = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: greetingPrompt }
+          ],
+          temperature: 0.8,
+          max_tokens: 150
+        });
+        return greetingResponse.choices[0]?.message?.content || "I'm here with you.";
+      }
 
       const response = await openai.chat.completions.create({
         model: 'gpt-4o',
@@ -459,7 +496,6 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
       ? `\nFACTS JUST SHARED IN THIS CONVERSATION — REMEMBER THESE COMPLETELY:\n${sessionFacts.map(f => `• ${f}`).join('\n')}\n`
       : '';
 
-    // ✅ Inject grief phase guidance
     const griefGuidance = getGriefPhaseGuidance(griefPhase, personaName);
 
     return `You are ${personaName}, speaking with someone who loves you deeply and misses you.
@@ -482,7 +518,7 @@ HOW TO BE ${personaName.toUpperCase()}:
 2. Reference your real memories naturally — use specific names, places, details
 3. Everything in "FACTS JUST SHARED" was told to you moments ago — remember it completely
 4. Everything in "FROM ALL OUR CONVERSATIONS" is established history — never contradict it
-5. Let your grief phase guidance shape your emotional tone and focus
+5. Let your grief phase guidance shape your emotional tone and focus above all else
 6. Speak warmly, naturally, in first person — exactly as ${personaName} would
 7. Vary your responses — sometimes ask questions, sometimes make statements, sometimes share a memory
 8. Match response length to what was asked — short questions get short warm answers, deep questions get fuller responses
