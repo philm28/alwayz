@@ -15,6 +15,7 @@ import { MemoryViewer } from './components/MemoryViewer';
 import { SurpriseMessage } from './components/SurpriseMessage';
 import { InviteFamily } from './components/InviteFamily';
 import { LegacyLetters } from './components/LegacyLetters';
+import { GuidedFirstConversation } from './components/GuidedFirstConversation';
 import { initializeMonitoring, setUserContext } from './lib/monitoring';
 import { initializeAnalytics, trackPageView } from './lib/analytics';
 import { Toaster } from 'react-hot-toast';
@@ -33,6 +34,7 @@ function App() {
   const [surprisePersona, setSurprisePersona] = useState<any>(null);
   const [invitePersona, setInvitePersona] = useState<any>(null);
   const [legacyPersona, setLegacyPersona] = useState<any>(null);
+  const [showGuidedConversation, setShowGuidedConversation] = useState(false);
 
   const { user, loading: authLoading, signOut } = useAuth();
   const { personas, sharedPersonas, loading: personasLoading } = usePersonas();
@@ -59,6 +61,37 @@ function App() {
       }
     }
   }, [user]);
+
+  // ✅ Check if this is the first conversation with this persona
+  const checkFirstConversation = async (persona: any): Promise<boolean> => {
+    if (!user) return false;
+    try {
+      const { data, error } = await supabase
+        .from('first_conversation_completed')
+        .select('id')
+        .eq('persona_id', persona.id)
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (error) return false;
+      return !data; // true = first time, false = has been here before
+    } catch {
+      return false;
+    }
+  };
+
+  // ✅ Open a persona conversation — check if guided intro needed
+  const openConversation = async (persona: any, type: 'chat' | 'video_call' | 'voice_call' = 'voice_call') => {
+    setSelectedPersona(persona);
+    setConversationType(type);
+
+    const isFirst = await checkFirstConversation(persona);
+    if (isFirst) {
+      setShowGuidedConversation(true);
+    } else {
+      setCurrentView('conversation');
+    }
+  };
 
   const Navigation = () => (
     <nav className="bg-white/80 backdrop-blur-lg shadow-sm border-b border-gray-100 sticky top-0 z-50">
@@ -143,7 +176,7 @@ function App() {
     <div className="group bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1">
       <div
         className="aspect-[4/3] bg-gradient-to-br from-blue-500 to-purple-600 relative overflow-hidden cursor-pointer"
-        onClick={() => { setSelectedPersona(persona); setCurrentView('conversation'); }}
+        onClick={() => openConversation(persona)}
       >
         {persona.avatar_url ? (
           <img src={persona.avatar_url} alt={persona.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
@@ -171,14 +204,13 @@ function App() {
             <span>{new Date(persona.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
           </div>
           <button
-            onClick={() => { setSelectedPersona(persona); setCurrentView('conversation'); }}
+            onClick={() => openConversation(persona)}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-all"
           >
             Talk →
           </button>
         </div>
 
-        {/* Action buttons row */}
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={(e) => { e.stopPropagation(); setSurprisePersona(persona); }}
@@ -463,8 +495,9 @@ function App() {
 
         if (freshPersona) {
           setSelectedPersona(freshPersona);
-          setConversationType('chat');
-          setCurrentView('conversation');
+          setConversationType('voice_call');
+          // ✅ Always show guided conversation after creating a new persona
+          setShowGuidedConversation(true);
         } else {
           setCurrentView('dashboard');
         }
@@ -587,6 +620,15 @@ function App() {
                   Legacy
                 </button>
 
+                {/* ✅ First Conversation button — always accessible */}
+                <button
+                  onClick={() => setShowGuidedConversation(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-semibold text-sm hover:bg-blue-100 transition-all"
+                >
+                  <Heart className="h-4 w-4" />
+                  Guide
+                </button>
+
                 {!isShared && (
                   <button
                     onClick={() => setInvitePersona(selectedPersona)}
@@ -699,6 +741,21 @@ function App() {
             <LegacyLetters
               persona={legacyPersona}
               onClose={() => setLegacyPersona(null)}
+            />
+          )}
+
+          {/* ✅ Guided First Conversation */}
+          {showGuidedConversation && selectedPersona && (
+            <GuidedFirstConversation
+              persona={selectedPersona}
+              onBegin={() => {
+                setShowGuidedConversation(false);
+                setCurrentView('conversation');
+              }}
+              onSkip={() => {
+                setShowGuidedConversation(false);
+                setCurrentView('conversation');
+              }}
             />
           )}
         </div>
