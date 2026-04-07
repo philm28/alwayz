@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { HelmetProvider } from 'react-helmet-async';
-import { Heart, Video, Upload, MessageCircle, Shield, Play, Sparkles, Plus, LogOut, Brain, Menu, X, Clock, Users, BookOpen, Mail } from 'lucide-react';
+import { Heart, Video, Upload, MessageCircle, Shield, Play, Sparkles, Plus, LogOut, Brain, Menu, X, Clock, Users, BookOpen, Mail, Volume2 } from 'lucide-react';
 import { useAuth } from './hooks/useAuth';
 import { usePersonas } from './hooks/usePersonas';
 import { AuthModal } from './components/AuthModal';
@@ -16,6 +16,7 @@ import { SurpriseMessage } from './components/SurpriseMessage';
 import { InviteFamily } from './components/InviteFamily';
 import { LegacyLetters } from './components/LegacyLetters';
 import { GuidedFirstConversation } from './components/GuidedFirstConversation';
+import { VoiceNotes } from './components/VoiceNotes';
 import { initializeMonitoring, setUserContext } from './lib/monitoring';
 import { initializeAnalytics, trackPageView } from './lib/analytics';
 import { Toaster } from 'react-hot-toast';
@@ -34,6 +35,7 @@ function App() {
   const [surprisePersona, setSurprisePersona] = useState<any>(null);
   const [invitePersona, setInvitePersona] = useState<any>(null);
   const [legacyPersona, setLegacyPersona] = useState<any>(null);
+  const [voiceNotePersona, setVoiceNotePersona] = useState<any>(null);
   const [showGuidedConversation, setShowGuidedConversation] = useState(false);
 
   const { user, loading: authLoading, signOut } = useAuth();
@@ -62,7 +64,6 @@ function App() {
     }
   }, [user]);
 
-  // ✅ Check if this is the first conversation with this persona
   const checkFirstConversation = async (persona: any): Promise<boolean> => {
     if (!user) return false;
     try {
@@ -74,13 +75,12 @@ function App() {
         .maybeSingle();
 
       if (error) return false;
-      return !data; // true = first time, false = has been here before
+      return !data;
     } catch {
       return false;
     }
   };
 
-  // ✅ Open a persona conversation — check if guided intro needed
   const openConversation = async (persona: any, type: 'chat' | 'video_call' | 'voice_call' = 'voice_call') => {
     setSelectedPersona(persona);
     setConversationType(type);
@@ -218,6 +218,15 @@ function App() {
           >
             <Sparkles className="h-3.5 w-3.5" />
             Surprise
+          </button>
+
+          {/* ✅ Voice Notes button */}
+          <button
+            onClick={(e) => { e.stopPropagation(); setVoiceNotePersona(persona); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-all"
+          >
+            <Volume2 className="h-3.5 w-3.5" />
+            Voice Note
           </button>
 
           <button
@@ -496,7 +505,6 @@ function App() {
         if (freshPersona) {
           setSelectedPersona(freshPersona);
           setConversationType('voice_call');
-          // ✅ Always show guided conversation after creating a new persona
           setShowGuidedConversation(true);
         } else {
           setCurrentView('dashboard');
@@ -612,6 +620,15 @@ function App() {
                   Surprise
                 </button>
 
+                {/* ✅ Voice Notes in conversation view */}
+                <button
+                  onClick={() => setVoiceNotePersona(selectedPersona)}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-semibold text-sm hover:bg-blue-100 transition-all"
+                >
+                  <Volume2 className="h-4 w-4" />
+                  Voice Notes
+                </button>
+
                 <button
                   onClick={() => setLegacyPersona(selectedPersona)}
                   className="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-600 rounded-xl font-semibold text-sm hover:bg-amber-100 transition-all"
@@ -620,10 +637,9 @@ function App() {
                   Legacy
                 </button>
 
-                {/* ✅ First Conversation button — always accessible */}
                 <button
                   onClick={() => setShowGuidedConversation(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-semibold text-sm hover:bg-blue-100 transition-all"
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-50 text-slate-600 rounded-xl font-semibold text-sm hover:bg-slate-100 transition-all"
                 >
                   <Heart className="h-4 w-4" />
                   Guide
@@ -744,7 +760,14 @@ function App() {
             />
           )}
 
-          {/* ✅ Guided First Conversation */}
+          {/* ✅ Voice Notes Modal */}
+          {voiceNotePersona && (
+            <VoiceNotes
+              persona={voiceNotePersona}
+              onClose={() => setVoiceNotePersona(null)}
+            />
+          )}
+
           {showGuidedConversation && selectedPersona && (
             <GuidedFirstConversation
               persona={selectedPersona}
