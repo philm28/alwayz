@@ -97,6 +97,12 @@ function App() {
     }
   };
 
+  // ✅ Back to dashboard from conversation
+  const handleBackToDashboard = () => {
+    setSelectedPersona(null);
+    setCurrentView('dashboard');
+  };
+
   const Navigation = () => (
     <nav className="bg-white/80 backdrop-blur-lg shadow-sm border-b border-gray-100 sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -406,7 +412,6 @@ function App() {
         </div>
       </section>
 
-      {/* Record Your Legacy section */}
       <section className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-amber-50 to-orange-50">
         <div className="max-w-4xl mx-auto">
           <div className="bg-gradient-to-r from-amber-500 to-orange-500 rounded-3xl p-10 text-white text-center shadow-2xl">
@@ -429,7 +434,6 @@ function App() {
         </div>
       </section>
 
-      {/* Clinical Partners section */}
       <section className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-teal-50 to-blue-50">
         <div className="max-w-4xl mx-auto">
           <div className="bg-gradient-to-r from-teal-600 to-blue-600 rounded-3xl p-10 text-white text-center shadow-2xl">
@@ -680,7 +684,7 @@ function App() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="mb-6">
             <button
-              onClick={() => { setSelectedPersona(null); setCurrentView('dashboard'); }}
+              onClick={handleBackToDashboard}
               className="text-gray-600 hover:text-gray-900 flex items-center gap-2 mb-4"
             >
               ← Back to Dashboard
@@ -792,6 +796,7 @@ function App() {
                 persona={selectedPersona}
                 conversationType={conversationType}
                 onEndCall={() => setConversationType('chat')}
+                onBackToDashboard={handleBackToDashboard}
               />
             </div>
             <div className="space-y-6">
