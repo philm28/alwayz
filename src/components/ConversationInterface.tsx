@@ -1,22 +1,21 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from '../lib/supabase';
-import { useAuth } from '../hooks/useAuth';
+import React from 'react';
 import { FaceTimeInterface } from './FaceTimeInterface';
 
 interface ConversationInterfaceProps {
   persona: any;
   conversationType?: 'chat' | 'video_call' | 'voice_call';
   onEndCall?: () => void;
+  onBackToDashboard?: () => void;
 }
 
 export function ConversationInterface({
   persona,
   conversationType = 'chat',
-  onEndCall
+  onEndCall,
+  onBackToDashboard
 }: ConversationInterfaceProps) {
   const personaId = persona?.id;
   const personaName = persona?.name || 'Persona';
-  const { user } = useAuth();
 
   if (!persona || !personaId) {
     return (
@@ -28,13 +27,13 @@ export function ConversationInterface({
     );
   }
 
-  // All conversation types route through FaceTime interface
   return (
     <FaceTimeInterface
       personaId={personaId}
       personaName={personaName}
       personaAvatar={persona?.avatar_url}
       onEndCall={() => onEndCall?.()}
+      onBackToDashboard={onBackToDashboard}
     />
   );
 }
