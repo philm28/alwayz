@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Mic, StopCircle, Play, Pause, CheckCircle, ChevronRight, ChevronLeft, Heart, Sparkles, X, RotateCcw } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Mic, StopCircle, Play, Pause, CheckCircle, ChevronRight, ChevronLeft, Heart, Sparkles, X, RotateCcw, Camera, Upload } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -95,6 +95,7 @@ interface RecordingState {
   [questionId: string]: {
     transcript: string;
     audioUrl: string;
+    audioBlob?: Blob;
     status: 'pending' | 'recording' | 'transcribed' | 'saved';
   };
 }
@@ -111,10 +112,15 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [personaName, setPersonaName] = useState('');
   const [personaId, setPersonaId] = useState<string | null>(null);
   const [isCreatingPersona, setIsCreatingPersona] = useState(false);
+  const [savingStep, setSavingStep] = useState('');
+
+  // ✅ Photo state
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -125,6 +131,14 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
   const completedCount = Object.keys(recordings).filter(
     id => recordings[id]?.status === 'transcribed' || recordings[id]?.status === 'saved'
   ).length;
+
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPhotoFile(file);
+    const url = URL.createObjectURL(file);
+    setPhotoPreview(url);
+  };
 
   const startRecording = async () => {
     try {
@@ -171,10 +185,8 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
 
   const transcribeRecording = async (blob: Blob) => {
     try {
-      // Create preview URL
       const audioUrl = URL.createObjectURL(blob);
 
-      // Transcribe with Whisper
       const fd = new FormData();
       fd.append('file', blob, 'recording.mp4');
       fd.append('model', 'whisper-1');
@@ -190,11 +202,13 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
       const data = await response.json();
       const transcript = data.text || '';
 
+      // ✅ Store blob for later voice cloning
       setRecordings(prev => ({
         ...prev,
         [currentQuestion.id]: {
           transcript,
           audioUrl,
+          audioBlob: blob,
           status: 'transcribed'
         }
       }));
@@ -219,11 +233,7 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
 
   const playRecording = () => {
     if (!currentRecording?.audioUrl) return;
-
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
-
+    if (audioRef.current) audioRef.current.pause();
     const audio = new Audio(currentRecording.audioUrl);
     audioRef.current = audio;
     audio.onended = () => setIsPlaying(false);
@@ -255,6 +265,67 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
     }
   };
 
+  // ✅ Clone voice from all recorded audio blobs combined
+  const cloneVoiceFromRecordings = async (personaId: string): Promise<string | null> => {
+    try {
+      setSavingStep('Cloning your voice...');
+
+      const completedBlobs = Object.values(recordings)
+        .filter(r => r.audioBlob && (r.status === 'transcribed' || r.status === 'saved'))
+        .map(r => r.audioBlob as Blob);
+
+      if (completedBlobs.length === 0) {
+        console.warn('No audio blobs available for voice cloning');
+        return null;
+      }
+
+      console.log(`✅ Using ${completedBlobs.length} recordings for voice cloning`);
+
+      const formData = new FormData();
+      formData.append('name', `Legacy - ${personaName}`);
+      formData.append('description', `Self-recorded legacy voice for ${personaName}`);
+
+      // Add all recordings as separate files
+      completedBlobs.forEach((blob, i) => {
+        formData.append('files', blob, `recording_${i}.mp4`);
+      });
+
+      const response = await fetch('https://api.elevenlabs.io/v1/voices/add', {
+        method: 'POST',
+        headers: {
+          'xi-api-key': import.meta.env.VITE_ELEVENLABS_API_KEY!
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        const err = await response.text();
+        console.error('ElevenLabs error:', err);
+        return null;
+      }
+
+      const data = await response.json();
+      const voiceId = data.voice_id;
+
+      if (voiceId) {
+        // Save voice_model_id to persona
+        await supabase
+          .from('personas')
+          .update({ voice_model_id: voiceId })
+          .eq('id', personaId);
+
+        console.log(`✅ Voice cloned successfully: ${voiceId}`);
+        return voiceId;
+      }
+
+      return null;
+
+    } catch (error) {
+      console.error('Voice cloning error:', error);
+      return null;
+    }
+  };
+
   const createPersonaAndSave = async () => {
     if (!user || !personaName.trim()) {
       toast.error('Please enter your name');
@@ -264,7 +335,26 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
     setIsCreatingPersona(true);
 
     try {
-      // Create a self-recorded persona
+      setSavingStep('Creating your persona...');
+
+      // ✅ Upload photo first if provided
+      let avatarUrl = '';
+      if (photoFile) {
+        setSavingStep('Uploading your photo...');
+        const fileName = `avatars/${user.id}/${Date.now()}.${photoFile.name.split('.').pop()}`;
+        const { error: uploadError } = await supabase.storage
+          .from('persona-content')
+          .upload(fileName, photoFile, { contentType: photoFile.type });
+
+        if (!uploadError) {
+          const { data: { publicUrl } } = supabase.storage
+            .from('persona-content')
+            .getPublicUrl(fileName);
+          avatarUrl = publicUrl;
+        }
+      }
+
+      // Create persona
       const { data: persona, error: personaError } = await supabase
         .from('personas')
         .insert({
@@ -276,7 +366,8 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
           status: 'active',
           training_progress: 100,
           is_self_recorded: true,
-          self_recorded_by: user.id
+          self_recorded_by: user.id,
+          avatar_url: avatarUrl || null
         })
         .select()
         .single();
@@ -284,7 +375,19 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
       if (personaError) throw personaError;
       setPersonaId(persona.id);
 
-      // Save all recordings as high-importance memories
+      // ✅ Clone voice from recordings automatically
+      const voiceId = await cloneVoiceFromRecordings(persona.id);
+      if (voiceId) {
+        toast.success('Voice cloned successfully ✓', { duration: 2000 });
+      } else {
+        toast('Voice cloning skipped — you can add voice samples from the dashboard', {
+          icon: 'ℹ️',
+          duration: 4000
+        });
+      }
+
+      // Save all recordings as memories
+      setSavingStep('Saving your memories...');
       const completedRecordings = Object.entries(recordings).filter(
         ([_, r]) => r.status === 'transcribed' && r.transcript
       );
@@ -296,24 +399,23 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
         // Upload audio to storage
         let audioStorageUrl = '';
         try {
-          const audioBlob = await fetch(recording.audioUrl).then(r => r.blob());
-          const fileName = `legacy-recordings/${persona.id}/${questionId}.mp4`;
-
-          const { error: uploadError } = await supabase.storage
-            .from('persona-content')
-            .upload(fileName, audioBlob, { contentType: 'audio/mp4' });
-
-          if (!uploadError) {
-            const { data: { publicUrl } } = supabase.storage
+          if (recording.audioBlob) {
+            const fileName = `legacy-recordings/${persona.id}/${questionId}.mp4`;
+            const { error: uploadError } = await supabase.storage
               .from('persona-content')
-              .getPublicUrl(fileName);
-            audioStorageUrl = publicUrl;
+              .upload(fileName, recording.audioBlob, { contentType: 'audio/mp4' });
+
+            if (!uploadError) {
+              const { data: { publicUrl } } = supabase.storage
+                .from('persona-content')
+                .getPublicUrl(fileName);
+              audioStorageUrl = publicUrl;
+            }
           }
         } catch {
           console.warn('Could not upload audio for', questionId);
         }
 
-        // Save to legacy_recordings
         await supabase.from('legacy_recordings').insert({
           user_id: user.id,
           persona_id: persona.id,
@@ -325,7 +427,6 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
           status: 'saved'
         });
 
-        // Save as high-importance memory
         await supabase.from('persona_memories').insert({
           persona_id: persona.id,
           content: `${question.question}: ${recording.transcript}`,
@@ -343,6 +444,7 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
       toast.error('Could not save. Please try again.');
     } finally {
       setIsCreatingPersona(false);
+      setSavingStep('');
     }
   };
 
@@ -351,7 +453,6 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
   return (
     <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-blue-950 to-purple-950 z-50 overflow-y-auto">
 
-      {/* Close button */}
       <button
         onClick={onClose}
         className="absolute top-6 right-6 p-2 text-white/40 hover:text-white/70 transition-colors z-10"
@@ -417,42 +518,93 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
       {/* ── SETUP ── */}
       {phase === 'setup' && (
         <div className="min-h-screen flex items-center justify-center p-8">
-          <div className="max-w-lg w-full text-center">
-            <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-8">
-              <Heart className="h-10 w-10 text-white" fill="currentColor" />
+          <div className="max-w-lg w-full">
+            <div className="text-center mb-8">
+              <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Heart className="h-10 w-10 text-white" fill="currentColor" />
+              </div>
+              <h2 className="text-3xl font-bold text-white mb-3">A few things first</h2>
+              <p className="text-white/60">So your family knows exactly who they're talking to.</p>
             </div>
 
-            <h2 className="text-3xl font-bold text-white mb-3">What's your name?</h2>
-            <p className="text-white/60 mb-8 leading-relaxed">
-              This is how your family will know you in their conversations with your AI persona.
-            </p>
+            <div className="space-y-6">
+              {/* Name */}
+              <div>
+                <label className="block text-white/70 text-sm font-semibold mb-2">Your full name *</label>
+                <input
+                  type="text"
+                  value={personaName}
+                  onChange={(e) => setPersonaName(e.target.value)}
+                  placeholder="Your full name"
+                  className="w-full bg-white/10 border border-white/20 text-white placeholder-white/30 rounded-2xl px-6 py-4 text-lg focus:outline-none focus:border-blue-400 transition-all"
+                />
+              </div>
 
-            <input
-              type="text"
-              value={personaName}
-              onChange={(e) => setPersonaName(e.target.value)}
-              placeholder="Your full name"
-              className="w-full bg-white/10 border border-white/20 text-white placeholder-white/30 rounded-2xl px-6 py-4 text-lg focus:outline-none focus:border-blue-400 transition-all mb-6"
-            />
+              {/* ✅ Photo upload */}
+              <div>
+                <label className="block text-white/70 text-sm font-semibold mb-2">
+                  Your photo
+                  <span className="text-white/30 font-normal ml-2">(Optional but recommended)</span>
+                </label>
 
-            <div className="bg-white/10 rounded-2xl p-5 mb-8 text-left border border-white/10">
-              <p className="text-white/80 text-sm leading-relaxed">
-                <strong className="text-white">How this works:</strong> You'll answer {LEGACY_QUESTIONS.length} questions by speaking naturally.
-                Each answer is transcribed and saved as a memory. Your family can then have conversations
-                with an AI persona that speaks in your voice and knows your stories.
-              </p>
+                {photoPreview ? (
+                  <div className="flex items-center gap-4">
+                    <img
+                      src={photoPreview}
+                      alt="Preview"
+                      className="w-20 h-20 rounded-2xl object-cover border-2 border-white/20"
+                    />
+                    <div>
+                      <p className="text-white text-sm font-semibold mb-1">Photo selected ✓</p>
+                      <button
+                        onClick={() => { setPhotoFile(null); setPhotoPreview(null); }}
+                        className="text-white/40 text-xs hover:text-white/60 transition-colors"
+                      >
+                        Remove photo
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => photoInputRef.current?.click()}
+                    className="w-full bg-white/10 border-2 border-dashed border-white/20 rounded-2xl p-6 flex flex-col items-center gap-3 hover:border-white/40 hover:bg-white/15 transition-all"
+                  >
+                    <Camera className="h-8 w-8 text-white/40" />
+                    <div className="text-center">
+                      <p className="text-white/70 text-sm font-semibold">Upload a photo</p>
+                      <p className="text-white/30 text-xs mt-1">This will be shown to your family when they talk to you</p>
+                    </div>
+                  </button>
+                )}
+
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoSelect}
+                  className="hidden"
+                />
+              </div>
+
+              <div className="bg-white/10 rounded-2xl p-5 border border-white/10">
+                <p className="text-white/80 text-sm leading-relaxed">
+                  <strong className="text-white">How this works:</strong> You'll answer {LEGACY_QUESTIONS.length} questions by speaking naturally.
+                  Your voice recordings will be used to create an AI clone of your voice.
+                  Your family can then have conversations with you that feel real.
+                </p>
+              </div>
+
+              <button
+                onClick={() => {
+                  if (!personaName.trim()) { toast.error('Please enter your name'); return; }
+                  setPhase('recording');
+                }}
+                className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white px-8 py-4 rounded-2xl font-bold text-lg hover:shadow-2xl transition-all flex items-center justify-center gap-2"
+              >
+                I'm Ready
+                <ChevronRight className="h-5 w-5" />
+              </button>
             </div>
-
-            <button
-              onClick={() => {
-                if (!personaName.trim()) { toast.error('Please enter your name'); return; }
-                setPhase('recording');
-              }}
-              className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white px-8 py-4 rounded-2xl font-bold text-lg hover:shadow-2xl transition-all flex items-center justify-center gap-2"
-            >
-              I'm Ready
-              <ChevronRight className="h-5 w-5" />
-            </button>
           </div>
         </div>
       )}
@@ -462,7 +614,6 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
         <div className="min-h-screen flex items-center justify-center p-8">
           <div className="max-w-2xl w-full">
 
-            {/* Progress */}
             <div className="mb-8">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-white/50 text-sm">
@@ -480,20 +631,16 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
               </div>
             </div>
 
-            {/* Category badge */}
             <div className={`inline-flex items-center gap-2 bg-gradient-to-r ${currentQuestion.categoryColor} px-4 py-1.5 rounded-full text-white text-xs font-semibold mb-6`}>
               {currentQuestion.category}
             </div>
 
-            {/* Question */}
             <h2 className="text-2xl md:text-3xl font-bold text-white mb-3 leading-tight">
               {currentQuestion.question}
             </h2>
             <p className="text-white/40 text-sm mb-10 italic">{currentQuestion.prompt}</p>
 
-            {/* Recording interface */}
             <div className="bg-white/10 backdrop-blur rounded-3xl p-8 border border-white/10 mb-8">
-
               {!currentRecording || currentRecording.status === 'pending' ? (
                 <div className="text-center">
                   <button
@@ -531,7 +678,6 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
                 </div>
               ) : (
                 <div>
-                  {/* Transcribed */}
                   <div className="flex items-center gap-2 mb-3">
                     <CheckCircle className="h-4 w-4 text-green-400" />
                     <span className="text-green-400 text-sm font-semibold">Recorded</span>
@@ -564,7 +710,6 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
               )}
             </div>
 
-            {/* Navigation */}
             <div className="flex items-center gap-3">
               <button
                 onClick={prevQuestion}
@@ -599,18 +744,34 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
         <div className="min-h-screen flex items-center justify-center p-8">
           <div className="max-w-2xl w-full">
             <div className="text-center mb-8">
-              <div className="w-16 h-16 bg-gradient-to-br from-green-400 to-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                <CheckCircle className="h-8 w-8 text-white" />
-              </div>
+
+              {/* ✅ Show photo preview if uploaded */}
+              {photoPreview ? (
+                <img
+                  src={photoPreview}
+                  alt={personaName}
+                  className="w-24 h-24 rounded-full object-cover border-4 border-white/20 mx-auto mb-4"
+                />
+              ) : (
+                <div className="w-16 h-16 bg-gradient-to-br from-green-400 to-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <CheckCircle className="h-8 w-8 text-white" />
+                </div>
+              )}
+
               <h2 className="text-3xl font-bold text-white mb-2">
                 {completedCount} answers recorded
               </h2>
-              <p className="text-white/60">
-                These become the foundation of your AI persona. Your family will be able to talk to you through these memories.
+              <p className="text-white/60 mb-2">
+                These become the foundation of your AI persona.
               </p>
+
+              {/* ✅ Voice cloning notice */}
+              <div className="inline-flex items-center gap-2 bg-green-500/20 text-green-400 px-4 py-2 rounded-full text-sm font-medium">
+                <Mic className="h-3.5 w-3.5" />
+                Your voice will be cloned automatically from your recordings
+              </div>
             </div>
 
-            {/* Summary by category */}
             <div className="space-y-3 mb-8">
               {categories.map(category => {
                 const categoryQuestions = LEGACY_QUESTIONS.filter(q => q.category === category);
@@ -668,7 +829,7 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
                 {isCreatingPersona ? (
                   <>
                     <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
-                    Saving your legacy...
+                    {savingStep || 'Saving your legacy...'}
                   </>
                 ) : (
                   <>
@@ -694,9 +855,17 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
         <div className="min-h-screen flex items-center justify-center p-8">
           <div className="max-w-lg w-full text-center">
             <div className="relative mb-8">
-              <div className="w-28 h-28 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full flex items-center justify-center mx-auto shadow-2xl">
-                <Heart className="h-14 w-14 text-white" fill="currentColor" />
-              </div>
+              {photoPreview ? (
+                <img
+                  src={photoPreview}
+                  alt={personaName}
+                  className="w-32 h-32 rounded-full object-cover border-4 border-amber-400/50 mx-auto shadow-2xl"
+                />
+              ) : (
+                <div className="w-28 h-28 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full flex items-center justify-center mx-auto shadow-2xl">
+                  <Heart className="h-14 w-14 text-white" fill="currentColor" />
+                </div>
+              )}
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="w-40 h-40 rounded-full border border-amber-400/20 animate-ping" />
               </div>
@@ -707,20 +876,19 @@ export function RecordYourLegacy({ onClose }: RecordYourLegacyProps) {
             </h2>
 
             <p className="text-xl text-white/70 mb-4 leading-relaxed">
-              {personaName}, your family will be able to talk to you through this recording.
+              {personaName}, your family will be able to talk to you.
             </p>
 
             <p className="text-white/50 mb-10 leading-relaxed max-w-md mx-auto">
-              Your answers have been saved as memories. Your voice has been preserved.
+              Your voice has been cloned from your recordings. Your answers have been saved as memories.
               When the time comes, the people you love will find comfort in knowing
-              you're still here — in your own words.
+              you're still here — in your own words, in your own voice.
             </p>
 
             <div className="bg-white/10 rounded-2xl p-6 mb-8 border border-white/10">
               <p className="text-white/60 text-sm leading-relaxed">
-                <strong className="text-white">What happens next:</strong> Your persona "{personaName}" now appears in your dashboard.
-                You can add more voice samples to improve the voice clone, and enrich the memories anytime.
-                Share access with your family when you're ready.
+                <strong className="text-white">What happens next:</strong> Your persona "{personaName}" now appears in your dashboard with a <span className="text-amber-400">My Legacy</span> badge.
+                You can enrich memories and share access with your family when you're ready.
               </p>
             </div>
 
