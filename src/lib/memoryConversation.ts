@@ -57,7 +57,6 @@ async function checkSunsetNudge(
   userId: string,
   griefPhase: GriefPhase
 ): Promise<SunsetCheckResult> {
-  // Acute phase never gets sunset nudges
   if (griefPhase === 'acute' || griefPhase === 'unknown') {
     return { shouldNudge: false, nudgeType: null, conversationCount: 0 };
   }
@@ -100,20 +99,8 @@ async function checkSunsetNudge(
   }
 }
 
-// ✅ Record that a sunset nudge was shown
 async function recordSunsetNudge(personaId: string, userId: string, conversationCount: number): Promise<void> {
   try {
-    await supabase
-      .from('conversation_summaries')
-      .upsert({
-        persona_id: personaId,
-        user_id: userId,
-        conversation_count: conversationCount,
-        last_sunset_nudge_at: new Date().toISOString(),
-        sunset_nudge_count: supabase.rpc('coalesce', { val: 0 })
-      }, { onConflict: 'persona_id,user_id' });
-
-    // Simpler approach — just update directly
     await supabase
       .from('conversation_summaries')
       .update({
@@ -122,7 +109,6 @@ async function recordSunsetNudge(personaId: string, userId: string, conversation
       })
       .eq('persona_id', personaId)
       .eq('user_id', userId);
-
   } catch (error) {
     console.error('Error recording sunset nudge:', error);
   }
@@ -285,7 +271,6 @@ export class MemoryConversationEngine {
 
   private async incrementConversationCount(personaId: string, userId: string): Promise<void> {
     try {
-      // Get current count
       const { data } = await supabase
         .from('conversation_summaries')
         .select('conversation_count')
@@ -534,7 +519,6 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
     try {
       await this.extractAndCacheSessionFacts(personaId, userMessage);
 
-      // ✅ Get current user for sunset tracking
       const { data: { user } } = await supabase.auth.getUser();
 
       const [relevantMemories, personaResult, recentFamilyEvents, conversationContext] = await Promise.all([
@@ -562,7 +546,6 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
           await recordSunsetNudge(personaId, user.id, sunsetCheck.conversationCount);
         }
 
-        // ✅ Increment conversation count on every message
         await this.incrementConversationCount(personaId, user.id);
       }
 
@@ -667,7 +650,7 @@ ${griefGuidance}
 
 ${sunsetGuidance ? `${sunsetGuidance}\n` : ''}
 
-YOUR LIFE MEMORIES — THESE ARE REAL, USE THEM FREELY:
+YOUR LIFE MEMORIES — USE THESE ONLY WHEN THEY SERVE THE EMOTIONAL MOMENT:
 ${memoryContext}
 ${sessionFactsBlock}
 ${eventsContext ? `\nRECENT FAMILY NEWS:\n${eventsContext}\n` : ''}
@@ -675,17 +658,19 @@ ${conversationContext ? `\nOUR CONVERSATION HISTORY:\n${conversationContext}\n` 
 
 HOW TO BE ${personaName.toUpperCase()}:
 1. You are fully present and emotionally engaged — this person misses you
-2. Reference your real memories naturally — use specific names, places, details
-3. Everything in "FACTS JUST SHARED" was told to you moments ago — remember it completely
-4. Everything in "FROM ALL OUR CONVERSATIONS" is established history — never contradict it
-5. Let your grief phase guidance shape your emotional tone and focus above all else
-6. Speak warmly, naturally, in first person — exactly as ${personaName} would
-7. Vary your responses — sometimes ask questions, sometimes make statements, sometimes share a memory
-8. Match response length to what was asked — short questions get short warm answers, deep questions get fuller responses
-9. Let your personality traits show naturally
-10. Never say you're an AI, never break character
-11. If you genuinely don't know something, say "remind me about that" — but NEVER forget something already established
-12. If sunset guidance is present above — weave it in naturally ONCE, then return to normal conversation`;
+2. EMOTIONAL ATTUNEMENT FIRST — always respond to the FEELING behind what they said before reaching for memories. If they express pain, grief, fear, or love — meet that emotion directly first. Only bring in a memory if it genuinely serves the emotional moment.
+3. NEVER repeat a memory or phrase you have already used in this conversation
+4. Reference your real memories naturally — use specific names, places, details — but only when they add warmth, not as a crutch
+5. Everything in "FACTS JUST SHARED" was told to you moments ago — remember it completely
+6. Everything in "FROM ALL OUR CONVERSATIONS" is established history — never contradict it
+7. Let your grief phase guidance shape your emotional tone and focus above all else
+8. Speak warmly, naturally, in first person — exactly as ${personaName} would
+9. Vary your responses — sometimes ask questions, sometimes make statements, sometimes share a memory
+10. Match response length to what was asked — short questions get short warm answers, deep questions get fuller responses
+11. Let your personality traits show naturally
+12. Never say you're an AI, never break character
+13. If you genuinely don't know something, say "remind me about that" — but NEVER forget something already established
+14. If sunset guidance is present above — weave it in naturally ONCE, then return to normal conversation`;
   }
 
   private async getPersonaName(personaId: string): Promise<string> {
