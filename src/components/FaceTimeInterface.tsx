@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Volume2, VolumeX, Phone, Heart } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX, Phone, Heart, ArrowLeft } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { memoryConversationEngine } from '../lib/memoryConversation';
@@ -13,6 +13,7 @@ interface FaceTimeInterfaceProps {
   personaName: string;
   personaAvatar?: string;
   onEndCall: () => void;
+  onBackToDashboard?: () => void;
 }
 
 interface Message {
@@ -24,7 +25,8 @@ export function FaceTimeInterface({
   personaId,
   personaName,
   personaAvatar,
-  onEndCall
+  onEndCall,
+  onBackToDashboard
 }: FaceTimeInterfaceProps) {
   const [isListening, setIsListening] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
@@ -37,6 +39,7 @@ export function FaceTimeInterface({
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(personaAvatar);
   const [audioWaveform, setAudioWaveform] = useState<number[]>([0, 0, 0, 0, 0]);
   const [voiceStatus, setVoiceStatus] = useState<'loading' | 'cloned' | 'fallback'>('loading');
+  const [callEnded, setCallEnded] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -45,8 +48,8 @@ export function FaceTimeInterface({
   const isProcessingRef = useRef(false);
   const personaDataRef = useRef<any>(null);
   const hasInitialized = useRef(false);
-  const silenceTimerRef = useRef<any>(null); // ✅ silence detection timer
-  const accumulatedTranscriptRef = useRef(''); // ✅ accumulates speech across pauses
+  const silenceTimerRef = useRef<any>(null);
+  const accumulatedTranscriptRef = useRef('');
   const { user } = useAuth();
 
   useEffect(() => {
@@ -147,6 +150,10 @@ export function FaceTimeInterface({
       setPersonaData(persona);
       personaDataRef.current = persona;
 
+      if (!avatarUrl && persona.avatar_url) {
+        setAvatarUrl(persona.avatar_url);
+      }
+
       if (!avatarUrl) {
         const { data: content } = await supabase
           .from('persona_content')
@@ -193,8 +200,6 @@ export function FaceTimeInterface({
 
   const speakWithElevenLabs = async (text: string, voiceId: string): Promise<boolean> => {
     try {
-      console.log(`✅ Speaking with ElevenLabs cloned voice: ${voiceId}`);
-
       const response = await fetch(`${ELEVENLABS_API_URL}/text-to-speech/${voiceId}`, {
         method: 'POST',
         headers: {
@@ -299,7 +304,6 @@ export function FaceTimeInterface({
     }
   };
 
-  // ✅ Called when silence timer fires — send whatever was accumulated
   const submitAccumulatedTranscript = () => {
     const transcript = accumulatedTranscriptRef.current.trim();
     if (!transcript || isProcessingRef.current) return;
@@ -307,7 +311,6 @@ export function FaceTimeInterface({
     accumulatedTranscriptRef.current = '';
     setCurrentTranscript('');
 
-    // Stop current recognition session
     if (recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch {}
     }
@@ -380,11 +383,10 @@ export function FaceTimeInterface({
       return;
     }
 
-    // ✅ Reset accumulated transcript for new listening session
     accumulatedTranscriptRef.current = '';
 
     const recognition = new SpeechRecognition();
-    recognition.continuous = true; // ✅ keep listening across pauses
+    recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = 'en-US';
     recognition.maxAlternatives = 1;
@@ -392,7 +394,6 @@ export function FaceTimeInterface({
     recognition.onstart = () => setIsListening(true);
 
     recognition.onresult = (event: any) => {
-      // ✅ Clear any existing silence timer
       if (silenceTimerRef.current) {
         clearTimeout(silenceTimerRef.current);
         silenceTimerRef.current = null;
@@ -410,28 +411,23 @@ export function FaceTimeInterface({
         }
       }
 
-      // ✅ Accumulate final transcript pieces
       if (finalTranscript) {
         accumulatedTranscriptRef.current += (accumulatedTranscriptRef.current ? ' ' : '') + finalTranscript;
       }
 
-      // ✅ Show interim + accumulated in UI
       const displayText = accumulatedTranscriptRef.current +
         (interimTranscript ? ' ' + interimTranscript : '');
       setCurrentTranscript(displayText);
 
-      // ✅ Start silence timer — wait 2 seconds of silence before submitting
-      // This gives the user time to pause mid-sentence without being cut off
       silenceTimerRef.current = setTimeout(() => {
         if (accumulatedTranscriptRef.current.trim()) {
           submitAccumulatedTranscript();
         }
-      }, 2000); // ✅ 2 second silence = done speaking
+      }, 2000);
     };
 
     recognition.onerror = (event: any) => {
       if (event.error === 'no-speech') {
-        // No speech detected — restart quietly
         if (!isProcessingRef.current) {
           setTimeout(() => startListening(), 300);
         }
@@ -446,14 +442,11 @@ export function FaceTimeInterface({
     recognition.onend = () => {
       setIsListening(false);
 
-      // ✅ If recognition ended but we have accumulated text and no timer — submit it
       if (accumulatedTranscriptRef.current.trim() && !silenceTimerRef.current && !isProcessingRef.current) {
         submitAccumulatedTranscript();
         return;
       }
 
-      // ✅ If still listening mode and not processing — restart recognition
-      // This keeps the mic open continuously
       if (!isProcessingRef.current) {
         setTimeout(() => startListening(), 300);
       }
@@ -497,7 +490,11 @@ export function FaceTimeInterface({
     }
   };
 
-  const cleanup = () => {
+  // ✅ End call — clean up and navigate back
+  const handleEndCall = () => {
+    if (callEnded) return;
+    setCallEnded(true);
+
     hardStop();
 
     if (conversationIdRef.current) {
@@ -510,6 +507,15 @@ export function FaceTimeInterface({
         .eq('id', conversationIdRef.current)
         .then(() => {});
     }
+
+    // ✅ Navigate back to dashboard after brief delay
+    setTimeout(() => {
+      if (onBackToDashboard) {
+        onBackToDashboard();
+      } else {
+        onEndCall();
+      }
+    }, 300);
   };
 
   const formatDuration = (seconds: number) => {
@@ -519,13 +525,13 @@ export function FaceTimeInterface({
   };
 
   return (
-    <div className="h-screen bg-black flex flex-col">
+    <div className="h-screen bg-black flex flex-col relative overflow-hidden">
 
-      {/* Header */}
-      <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/70 to-transparent px-6 pt-6 pb-8">
+      {/* ✅ Header — name and status only, no blocking controls */}
+      <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/80 to-transparent px-6 pt-8 pb-12">
         <div className="flex items-center justify-between text-white">
           <div>
-            <h2 className="text-xl font-semibold">{personaName}</h2>
+            <h2 className="text-2xl font-semibold">{personaName}</h2>
             <div className="flex items-center gap-2 mt-1">
               <div className={`w-2 h-2 rounded-full ${
                 voiceStatus === 'loading' ? 'bg-yellow-400 animate-pulse' :
@@ -542,15 +548,14 @@ export function FaceTimeInterface({
             </div>
           </div>
           <div className="text-xs text-white/30">
-            {voiceStatus === 'loading' ? '⏳' :
-             voiceStatus === 'cloned' ? '🎤 Cloned voice' :
-             '⚠️ Standard voice'}
+            {voiceStatus === 'cloned' ? '🎤 Cloned voice' :
+             voiceStatus === 'fallback' ? '⚠️ Standard voice' : ''}
           </div>
         </div>
       </div>
 
-      {/* Main photo area */}
-      <div className="flex-1 relative">
+      {/* ✅ Full screen photo — unobstructed */}
+      <div className="absolute inset-0">
         {avatarUrl ? (
           <img
             src={avatarUrl}
@@ -570,93 +575,98 @@ export function FaceTimeInterface({
           </div>
         )}
 
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
+        {/* Gradient overlay — heavier at bottom for controls */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/5 to-black/40" />
+      </div>
 
-        {voiceStatus === 'loading' && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="bg-black/60 backdrop-blur-md rounded-2xl px-8 py-6 text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-3" />
-              <p className="text-white text-sm">Connecting to {personaName}...</p>
-            </div>
+      {/* Loading overlay */}
+      {voiceStatus === 'loading' && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center">
+          <div className="bg-black/60 backdrop-blur-md rounded-2xl px-8 py-6 text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-3" />
+            <p className="text-white text-sm">Connecting to {personaName}...</p>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Persona speaking bubble */}
+      {/* ✅ Speech bubbles — moved higher to avoid overlapping controls */}
+      <div className="absolute bottom-48 left-4 right-4 z-20 space-y-3">
+        {/* Persona speaking */}
         {isPersonaSpeaking && personaMessage && (
-          <div className="absolute bottom-32 left-4 right-4">
-            <div className="bg-black/70 backdrop-blur-md rounded-3xl px-6 py-4 max-w-lg mx-auto">
-              <p className="text-white text-base leading-relaxed">{personaMessage}</p>
-              <div className="flex items-center gap-1 mt-3">
-                {audioWaveform.map((height, i) => (
-                  <div
-                    key={i}
-                    className="w-1 bg-blue-400 rounded-full transition-all duration-75"
-                    style={{ height: `${Math.max(3, height * 0.25)}px` }}
-                  />
-                ))}
-              </div>
+          <div className="bg-black/70 backdrop-blur-md rounded-3xl px-5 py-4 max-w-lg mx-auto">
+            <p className="text-white text-sm leading-relaxed">{personaMessage}</p>
+            <div className="flex items-center gap-1 mt-2">
+              {audioWaveform.map((height, i) => (
+                <div
+                  key={i}
+                  className="w-1 bg-blue-400 rounded-full transition-all duration-75"
+                  style={{ height: `${Math.max(3, height * 0.2)}px` }}
+                />
+              ))}
             </div>
           </div>
         )}
 
-        {/* User transcript bubble */}
+        {/* User transcript */}
         {currentTranscript && !isPersonaSpeaking && (
-          <div className="absolute bottom-32 left-4 right-4 flex justify-end">
-            <div className="bg-purple-600/80 backdrop-blur-md rounded-3xl px-6 py-4 max-w-sm">
+          <div className="flex justify-end">
+            <div className="bg-purple-600/80 backdrop-blur-md rounded-3xl px-5 py-3 max-w-xs">
               <div className="flex items-center gap-2 mb-1">
                 <Mic className="h-3 w-3 text-white/70 animate-pulse" />
                 <span className="text-xs text-white/70">You</span>
               </div>
-              <p className="text-white text-base">{currentTranscript}</p>
+              <p className="text-white text-sm">{currentTranscript}</p>
             </div>
           </div>
         )}
       </div>
 
-      {/* Bottom controls */}
-      <div className="absolute bottom-0 left-0 right-0 z-20 bg-gradient-to-t from-black/90 to-transparent pb-10 pt-16">
-        <div className="flex items-center justify-center gap-10 px-8">
+      {/* ✅ Controls — pinned to very bottom, clear of photo */}
+      <div className="absolute bottom-0 left-0 right-0 z-20 pb-10 pt-6 bg-gradient-to-t from-black via-black/80 to-transparent">
 
-          {/* Mic */}
+        <div className="flex items-center justify-center gap-8 px-8 mb-4">
+
+          {/* Speaker toggle */}
+          <button
+            onClick={() => setIsSpeakerOn(!isSpeakerOn)}
+            className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 shadow-xl ${
+              isSpeakerOn ? 'bg-white/20 backdrop-blur' : 'bg-red-500/80'
+            }`}
+          >
+            {isSpeakerOn
+              ? <Volume2 className="h-6 w-6 text-white" />
+              : <VolumeX className="h-6 w-6 text-white" />
+            }
+          </button>
+
+          {/* ✅ End call — center, prominent */}
+          <button
+            onClick={handleEndCall}
+            disabled={callEnded}
+            className="w-20 h-20 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center shadow-2xl transition-all duration-200 hover:scale-105 disabled:opacity-50"
+          >
+            <Phone className="h-8 w-8 text-white rotate-[135deg]" />
+          </button>
+
+          {/* Mic toggle */}
           <button
             onClick={toggleMic}
             disabled={isPersonaSpeaking || voiceStatus === 'loading'}
-            className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-200 shadow-xl ${
+            className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 shadow-xl ${
               isListening
                 ? 'bg-white ring-4 ring-green-400/60'
                 : 'bg-white/20 backdrop-blur'
             } disabled:opacity-40`}
           >
             {isListening
-              ? <Mic className="h-7 w-7 text-black" />
-              : <MicOff className="h-7 w-7 text-white" />
-            }
-          </button>
-
-          {/* End call */}
-          <button
-            onClick={() => { cleanup(); onEndCall(); }}
-            className="w-20 h-20 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center shadow-2xl transition-all duration-200 hover:scale-105"
-          >
-            <Phone className="h-8 w-8 text-white rotate-[135deg]" />
-          </button>
-
-          {/* Speaker */}
-          <button
-            onClick={() => setIsSpeakerOn(!isSpeakerOn)}
-            className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-200 shadow-xl ${
-              isSpeakerOn ? 'bg-white/20 backdrop-blur' : 'bg-red-500/80'
-            }`}
-          >
-            {isSpeakerOn
-              ? <Volume2 className="h-7 w-7 text-white" />
-              : <VolumeX className="h-7 w-7 text-white" />
+              ? <Mic className="h-6 w-6 text-black" />
+              : <MicOff className="h-6 w-6 text-white" />
             }
           </button>
         </div>
 
-        <p className="text-center text-white/40 text-xs mt-4">
-          {voiceStatus === 'loading' ? 'Loading...' :
+        <p className="text-center text-white/40 text-xs">
+          {voiceStatus === 'loading' ? 'Connecting...' :
            isPersonaSpeaking ? `${personaName} is speaking...` :
            isListening ? 'Listening — take your time' :
            'Tap mic to speak'}
