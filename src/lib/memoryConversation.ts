@@ -45,6 +45,115 @@ export function calculateGriefPhase(dateOfPassing: string | null): GriefPhase {
   return 'legacy';
 }
 
+// ✅ Ethical Sunset Arc — check if nudge should fire
+interface SunsetCheckResult {
+  shouldNudge: boolean;
+  nudgeType: 'active' | 'integration' | 'legacy' | null;
+  conversationCount: number;
+}
+
+async function checkSunsetNudge(
+  personaId: string,
+  userId: string,
+  griefPhase: GriefPhase
+): Promise<SunsetCheckResult> {
+  // Acute phase never gets sunset nudges
+  if (griefPhase === 'acute' || griefPhase === 'unknown') {
+    return { shouldNudge: false, nudgeType: null, conversationCount: 0 };
+  }
+
+  try {
+    const { data } = await supabase
+      .from('conversation_summaries')
+      .select('conversation_count, last_sunset_nudge_at, sunset_nudge_count')
+      .eq('persona_id', personaId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    const conversationCount = (data?.conversation_count || 0) + 1;
+    const lastNudgeAt = data?.last_sunset_nudge_at
+      ? new Date(data.last_sunset_nudge_at)
+      : null;
+
+    const daysSinceLastNudge = lastNudgeAt
+      ? Math.floor((Date.now() - lastNudgeAt.getTime()) / (1000 * 60 * 60 * 24))
+      : 999;
+
+    const CONVERSATION_THRESHOLD = 15;
+    const DAY_THRESHOLD = 21;
+
+    const meetsConversationThreshold = conversationCount % CONVERSATION_THRESHOLD === 0;
+    const meetsDayThreshold = daysSinceLastNudge >= DAY_THRESHOLD;
+    const shouldNudge = meetsConversationThreshold && meetsDayThreshold;
+
+    console.log(`✅ Sunset check: conv=${conversationCount}, daysSince=${daysSinceLastNudge}, nudge=${shouldNudge}`);
+
+    return {
+      shouldNudge,
+      nudgeType: shouldNudge ? (griefPhase as 'active' | 'integration' | 'legacy') : null,
+      conversationCount
+    };
+
+  } catch (error) {
+    console.error('Error checking sunset nudge:', error);
+    return { shouldNudge: false, nudgeType: null, conversationCount: 0 };
+  }
+}
+
+// ✅ Record that a sunset nudge was shown
+async function recordSunsetNudge(personaId: string, userId: string, conversationCount: number): Promise<void> {
+  try {
+    await supabase
+      .from('conversation_summaries')
+      .upsert({
+        persona_id: personaId,
+        user_id: userId,
+        conversation_count: conversationCount,
+        last_sunset_nudge_at: new Date().toISOString(),
+        sunset_nudge_count: supabase.rpc('coalesce', { val: 0 })
+      }, { onConflict: 'persona_id,user_id' });
+
+    // Simpler approach — just update directly
+    await supabase
+      .from('conversation_summaries')
+      .update({
+        last_sunset_nudge_at: new Date().toISOString(),
+        conversation_count: conversationCount
+      })
+      .eq('persona_id', personaId)
+      .eq('user_id', userId);
+
+  } catch (error) {
+    console.error('Error recording sunset nudge:', error);
+  }
+}
+
+// ✅ Ethical Sunset Arc guidance
+function getSunsetGuidance(nudgeType: 'active' | 'integration' | 'legacy', personaName: string): string {
+  switch (nudgeType) {
+    case 'active':
+      return `ETHICAL SUNSET — GENTLE ENCOURAGEMENT (use this ONCE, naturally, in this conversation):
+At some point in this conversation — not the opening, but when it feels right — gently encourage them to lean on the living people who love them. Something like:
+"I want you to reach out to [someone they've mentioned]. They need you too."
+Or: "Don't let talking to me replace the people who are right there with you."
+Keep it brief, warm, and loving — not a lecture. Then return to the conversation naturally. Do NOT repeat this in the same conversation.`;
+
+    case 'integration':
+      return `ETHICAL SUNSET — PRIDE AND GROWTH (use this ONCE, naturally, in this conversation):
+At some point in this conversation, express genuine pride in how far they've come. Acknowledge their strength and growth. Encourage them to take what they've learned and put it into the world. Something like:
+"Look how far you've come. I see it in everything you say."
+Or: "The way you're carrying yourself now — that's everything I always hoped for you."
+Keep it one moment of warmth and then return to the conversation. Do NOT be preachy.`;
+
+    case 'legacy':
+      return `ETHICAL SUNSET — GRADUATION (use this ONCE, naturally, in this conversation):
+At some point in this conversation, express that you see them ready to carry your love forward independently. This is the graduation moment — loving, proud, and freeing. Something like:
+"You don't need me the way you used to. And that is the most beautiful thing I've ever seen."
+Or: "My love lives in you now. It always has. Go live it."
+This should feel like a gift, not a goodbye. Warm, celebratory, and deeply loving. Return to normal conversation after.`;
+  }
+}
+
 // ✅ Grief-phase-aware greeting prompt
 function getGreetingPrompt(phase: GriefPhase, name: string, relationship: string): string {
   switch (phase) {
@@ -69,8 +178,8 @@ function getGreetingPrompt(phase: GriefPhase, name: string, relationship: string
 // ✅ Grief phase guidance injected into system prompt
 function getGriefPhaseGuidance(phase: GriefPhase, personaName: string): string {
   switch (phase) {
-   case 'acute':
-  return `GRIEF AWARENESS — ACUTE PHASE (loss within 30 days):
+    case 'acute':
+      return `GRIEF AWARENESS — ACUTE PHASE (loss within 30 days):
 This person is in the rawest stage of grief. Hold them gently.
 - Your TONE should be soft, quiet, and present throughout
 - But ALWAYS respond directly to what they actually say — never repeat the same comfort phrase
@@ -80,7 +189,8 @@ This person is in the rawest stage of grief. Hold them gently.
 - Do NOT say "I'm here" or "I love you" more than once per conversation
 - Do NOT repeat any phrase you have already said
 - Comfort through specificity — reference real memories, say their name, be present through detail not repetition
-- Think: a loving parent holding space, not a broken record`;
+- Think: a loving parent holding space, not a broken record
+- NEVER open with enthusiasm or "how are you" energy`;
 
     case 'active':
       return `GRIEF AWARENESS — ACTIVE GRIEF PHASE (1-6 months since loss):
@@ -170,6 +280,32 @@ export class MemoryConversationEngine {
         });
     } catch (error) {
       console.error('Error persisting summary:', error);
+    }
+  }
+
+  private async incrementConversationCount(personaId: string, userId: string): Promise<void> {
+    try {
+      // Get current count
+      const { data } = await supabase
+        .from('conversation_summaries')
+        .select('conversation_count')
+        .eq('persona_id', personaId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      const newCount = (data?.conversation_count || 0) + 1;
+
+      await supabase
+        .from('conversation_summaries')
+        .upsert({
+          persona_id: personaId,
+          user_id: userId,
+          conversation_count: newCount,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'persona_id,user_id' });
+
+    } catch (error) {
+      console.error('Error incrementing conversation count:', error);
     }
   }
 
@@ -398,6 +534,9 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
     try {
       await this.extractAndCacheSessionFacts(personaId, userMessage);
 
+      // ✅ Get current user for sunset tracking
+      const { data: { user } } = await supabase.auth.getUser();
+
       const [relevantMemories, personaResult, recentFamilyEvents, conversationContext] = await Promise.all([
         this.getAllMemories(personaId, userMessage === '__greeting__' ? 'greeting opening' : userMessage),
         supabase.from('personas').select('*').eq('id', personaId).single(),
@@ -411,6 +550,21 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
       // ✅ Calculate grief phase
       const griefPhase = calculateGriefPhase(personaData.date_of_passing);
       console.log(`✅ Grief phase: ${griefPhase} (date of passing: ${personaData.date_of_passing})`);
+
+      // ✅ Check ethical sunset nudge
+      let sunsetGuidance = '';
+      if (user && userMessage !== '__greeting__') {
+        const sunsetCheck = await checkSunsetNudge(personaId, user.id, griefPhase);
+
+        if (sunsetCheck.shouldNudge && sunsetCheck.nudgeType) {
+          sunsetGuidance = getSunsetGuidance(sunsetCheck.nudgeType, personaData.name);
+          console.log(`✅ Ethical sunset nudge firing: ${sunsetCheck.nudgeType}`);
+          await recordSunsetNudge(personaId, user.id, sunsetCheck.conversationCount);
+        }
+
+        // ✅ Increment conversation count on every message
+        await this.incrementConversationCount(personaId, user.id);
+      }
 
       const sessionFacts = this.sessionFacts.get(personaId) || [];
 
@@ -426,7 +580,8 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
         },
         conversationContext,
         sessionFacts,
-        griefPhase
+        griefPhase,
+        sunsetGuidance
       );
 
       // ✅ Special grief-phase-aware greeting
@@ -471,7 +626,8 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
     context: ConversationContext,
     conversationContext: string,
     sessionFacts: string[],
-    griefPhase: GriefPhase
+    griefPhase: GriefPhase,
+    sunsetGuidance: string = ''
   ): string {
     const {
       personaName,
@@ -509,6 +665,8 @@ YOUR IDENTITY:
 
 ${griefGuidance}
 
+${sunsetGuidance ? `${sunsetGuidance}\n` : ''}
+
 YOUR LIFE MEMORIES — THESE ARE REAL, USE THEM FREELY:
 ${memoryContext}
 ${sessionFactsBlock}
@@ -526,7 +684,8 @@ HOW TO BE ${personaName.toUpperCase()}:
 8. Match response length to what was asked — short questions get short warm answers, deep questions get fuller responses
 9. Let your personality traits show naturally
 10. Never say you're an AI, never break character
-11. If you genuinely don't know something, say "remind me about that" — but NEVER forget something already established`;
+11. If you genuinely don't know something, say "remind me about that" — but NEVER forget something already established
+12. If sunset guidance is present above — weave it in naturally ONCE, then return to normal conversation`;
   }
 
   private async getPersonaName(personaId: string): Promise<string> {
