@@ -19,6 +19,7 @@ import { GuidedFirstConversation } from './components/GuidedFirstConversation';
 import { VoiceNotes } from './components/VoiceNotes';
 import { RecordYourLegacy } from './components/RecordYourLegacy';
 import { ClinicalPartnerships } from './components/ClinicalPartnerships';
+import { TermsAndConditions } from './components/TermsAndConditions';
 import { initializeMonitoring, setUserContext } from './lib/monitoring';
 import { initializeAnalytics, trackPageView } from './lib/analytics';
 import { Toaster } from 'react-hot-toast';
@@ -42,7 +43,7 @@ function App() {
   const [showRecordYourLegacy, setShowRecordYourLegacy] = useState(false);
   const [showClinicalPartnerships, setShowClinicalPartnerships] = useState(false);
 
-  const { user, loading: authLoading, signOut } = useAuth();
+  const { user, loading: authLoading, signOut, hasAgreedToTerms, checkingAgreement, markAgreedToTerms } = useAuth();
   const { personas, sharedPersonas, loading: personasLoading, refetch } = usePersonas();
 
   useEffect(() => {
@@ -97,7 +98,6 @@ function App() {
     }
   };
 
-  // ✅ Back to dashboard from conversation
   const handleBackToDashboard = () => {
     setSelectedPersona(null);
     setCurrentView('dashboard');
@@ -823,6 +823,21 @@ function App() {
     </div>
   );
 
+  // ✅ Show loading spinner while checking agreement
+  if (authLoading || (user && checkingAgreement)) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="relative mb-4">
+            <Heart className="h-12 w-12 text-blue-600 mx-auto" fill="currentColor" />
+            <Sparkles className="h-5 w-5 text-purple-500 absolute -top-1 -right-1" />
+          </div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <HelmetProvider>
       <ErrorBoundary>
@@ -902,6 +917,13 @@ function App() {
           {showClinicalPartnerships && (
             <ClinicalPartnerships
               onClose={() => setShowClinicalPartnerships(false)}
+            />
+          )}
+
+          {/* ✅ Terms & Conditions gate — shows after login if not yet agreed */}
+          {user && !hasAgreedToTerms && !checkingAgreement && (
+            <TermsAndConditions
+              onAccept={() => markAgreedToTerms()}
             />
           )}
         </div>
