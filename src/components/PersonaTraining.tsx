@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Brain, CheckCircle, Clock, AlertCircle, Zap, Heart, Upload, MessageCircle, BookOpen, Plus, Mic, StopCircle, Globe, X, ChevronRight, Save, Calendar } from 'lucide-react';
+import { Brain, CheckCircle, Clock, AlertCircle, Zap, Heart, Upload, MessageCircle, BookOpen, Plus, Mic, StopCircle, Globe, X, ChevronRight, Save, Calendar, Camera } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -68,6 +68,11 @@ export function PersonaTraining({
   const [formData, setFormData] = useState<PersonaFormData>({
     name: '', relationship: '', gender: '', description: '', dateOfPassing: ''
   });
+
+  // ✅ Photo state
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   // Memory form state
   const [selectedTraits, setSelectedTraits] = useState<string[]>([]);
@@ -139,6 +144,38 @@ export function PersonaTraining({
         .eq('id', personaId);
     } catch (error) {
       console.error('Error updating persona status:', error);
+    }
+  };
+
+  // ✅ Handle photo selection
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPhotoFile(file);
+    setPhotoPreview(URL.createObjectURL(file));
+  };
+
+  // ✅ Upload photo to Supabase storage
+  const uploadPhoto = async (personaId: string): Promise<string> => {
+    if (!photoFile || !user) return '';
+    try {
+      const ext = photoFile.name.split('.').pop();
+      const fileName = `avatars/${user.id}/${personaId}.${ext}`;
+
+      const { error } = await supabase.storage
+        .from('persona-content')
+        .upload(fileName, photoFile, { contentType: photoFile.type, upsert: true });
+
+      if (error) throw error;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('persona-content')
+        .getPublicUrl(fileName);
+
+      return publicUrl;
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      return '';
     }
   };
 
@@ -372,6 +409,7 @@ export function PersonaTraining({
 
     setIsCreating(true);
     try {
+      // ✅ Create persona first
       const { data, error } = await supabase
         .from('personas')
         .insert({
@@ -380,7 +418,6 @@ export function PersonaTraining({
           relationship: formData.relationship,
           gender: formData.gender,
           description: formData.description.trim() || null,
-          // ✅ Save date of passing if provided
           date_of_passing: formData.dateOfPassing || null,
           status: 'training',
           training_progress: 0
@@ -389,6 +426,18 @@ export function PersonaTraining({
         .single();
 
       if (error) throw error;
+
+      // ✅ Upload photo if provided
+      if (photoFile) {
+        const avatarUrl = await uploadPhoto(data.id);
+        if (avatarUrl) {
+          await supabase
+            .from('personas')
+            .update({ avatar_url: avatarUrl })
+            .eq('id', data.id);
+          toast.success('Photo uploaded ✓', { duration: 1500 });
+        }
+      }
 
       setPersonaId(data.id);
       setPersonaName(data.name);
@@ -476,7 +525,57 @@ export function PersonaTraining({
             </div>
           </div>
 
-          {/* ✅ Date of Passing field */}
+          {/* ✅ Photo upload */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Their Photo
+              <span className="text-gray-400 font-normal ml-2">(Optional but recommended)</span>
+            </label>
+
+            {photoPreview ? (
+              <div className="flex items-center gap-4">
+                <img
+                  src={photoPreview}
+                  alt="Preview"
+                  className="w-20 h-20 rounded-2xl object-cover border-2 border-gray-200 shadow-sm"
+                />
+                <div>
+                  <p className="text-sm font-semibold text-gray-700 mb-1">Photo selected ✓</p>
+                  <p className="text-xs text-gray-400 mb-2">This will appear on their persona card</p>
+                  <button
+                    onClick={() => { setPhotoFile(null); setPhotoPreview(null); }}
+                    className="text-xs text-red-400 hover:text-red-600 transition-colors"
+                  >
+                    Remove photo
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => photoInputRef.current?.click()}
+                className="w-full border-2 border-dashed border-gray-300 rounded-xl p-6 flex flex-col items-center gap-3 hover:border-blue-400 hover:bg-blue-50 transition-all"
+              >
+                <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center">
+                  <Camera className="h-6 w-6 text-gray-400" />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-semibold text-gray-600">Upload their photo</p>
+                  <p className="text-xs text-gray-400 mt-0.5">JPG, PNG or HEIC — shown on their persona card</p>
+                </div>
+              </button>
+            )}
+
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handlePhotoSelect}
+              className="hidden"
+            />
+          </div>
+
+          {/* Date of Passing */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">
               Date of Passing
@@ -497,6 +596,7 @@ export function PersonaTraining({
             </p>
           </div>
 
+          {/* Description */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">A few words about them (Optional)</label>
             <textarea
