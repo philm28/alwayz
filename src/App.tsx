@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { HelmetProvider } from 'react-helmet-async';
-import { Heart, Video, Upload, MessageCircle, Shield, Play, Sparkles, Plus, LogOut, Brain, Menu, X, Clock, Users, BookOpen, Mail, Volume2 } from 'lucide-react';
+import { Heart, Video, Upload, MessageCircle, Shield, Play, Sparkles, Plus, LogOut, Brain, Menu, X, Clock, Users, BookOpen, Mail, Volume2, Mic } from 'lucide-react';
 import { useAuth } from './hooks/useAuth';
 import { usePersonas } from './hooks/usePersonas';
 import { AuthModal } from './components/AuthModal';
@@ -17,6 +17,7 @@ import { InviteFamily } from './components/InviteFamily';
 import { LegacyLetters } from './components/LegacyLetters';
 import { GuidedFirstConversation } from './components/GuidedFirstConversation';
 import { VoiceNotes } from './components/VoiceNotes';
+import { RecordYourLegacy } from './components/RecordYourLegacy';
 import { initializeMonitoring, setUserContext } from './lib/monitoring';
 import { initializeAnalytics, trackPageView } from './lib/analytics';
 import { Toaster } from 'react-hot-toast';
@@ -37,9 +38,10 @@ function App() {
   const [legacyPersona, setLegacyPersona] = useState<any>(null);
   const [voiceNotePersona, setVoiceNotePersona] = useState<any>(null);
   const [showGuidedConversation, setShowGuidedConversation] = useState(false);
+  const [showRecordYourLegacy, setShowRecordYourLegacy] = useState(false);
 
   const { user, loading: authLoading, signOut } = useAuth();
-  const { personas, sharedPersonas, loading: personasLoading } = usePersonas();
+  const { personas, sharedPersonas, loading: personasLoading, refetch } = usePersonas();
 
   useEffect(() => {
     if (user) {
@@ -122,6 +124,14 @@ function App() {
                 >
                   Analytics
                 </button>
+                {/* ✅ Record Your Legacy in nav */}
+                <button
+                  onClick={() => setShowRecordYourLegacy(true)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-amber-600 hover:bg-amber-50 transition-all"
+                >
+                  <Mic className="h-4 w-4" />
+                  Record My Legacy
+                </button>
               </>
             )}
             {user ? (
@@ -159,6 +169,9 @@ function App() {
             <>
               <button onClick={() => { setCurrentView('dashboard'); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-50">Dashboard</button>
               <button onClick={() => { setCurrentView('analytics'); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-50">Analytics</button>
+              <button onClick={() => { setShowRecordYourLegacy(true); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-amber-600 hover:bg-amber-50 font-medium">
+                🎙️ Record My Legacy
+              </button>
               <button onClick={() => { signOut(); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-50">Sign Out</button>
             </>
           )}
@@ -193,6 +206,9 @@ function App() {
             {isShared && (
               <span className="text-xs bg-white/20 text-white px-2 py-0.5 rounded-full">Shared</span>
             )}
+            {persona.is_self_recorded && (
+              <span className="text-xs bg-amber-500/80 text-white px-2 py-0.5 rounded-full">My Legacy</span>
+            )}
           </div>
         </div>
       </div>
@@ -220,7 +236,6 @@ function App() {
             Surprise
           </button>
 
-          {/* ✅ Voice Notes button */}
           <button
             onClick={(e) => { e.stopPropagation(); setVoiceNotePersona(persona); }}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-all"
@@ -366,6 +381,31 @@ function App() {
         </div>
       </section>
 
+      {/* ✅ Record Your Legacy section on landing page */}
+      <section className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-amber-50 to-orange-50">
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-gradient-to-r from-amber-500 to-orange-500 rounded-3xl p-10 text-white text-center shadow-2xl">
+            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Mic className="h-8 w-8 text-white" />
+            </div>
+            <h2 className="text-3xl md:text-4xl font-bold mb-4">Record Your Own Legacy</h2>
+            <p className="text-xl text-white/80 mb-4 leading-relaxed">
+              Don't wait until it's too late.
+            </p>
+            <p className="text-white/70 mb-8 leading-relaxed max-w-2xl mx-auto">
+              Answer guided questions in your own voice — your wisdom, your memories, your love.
+              Your family will be able to talk to an AI version of you that knows your stories and speaks in your voice.
+            </p>
+            <button
+              onClick={() => user ? setShowRecordYourLegacy(true) : setIsAuthModalOpen(true)}
+              className="bg-white text-amber-600 px-8 py-4 rounded-full font-bold text-lg hover:shadow-2xl transition-all hover:scale-105"
+            >
+              {user ? 'Record My Legacy' : 'Get Started'}
+            </button>
+          </div>
+        </div>
+      </section>
+
       <section className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600">
         <div className="max-w-4xl mx-auto text-center">
           <div className="text-white/60 text-5xl mb-6">"</div>
@@ -419,15 +459,25 @@ function App() {
               <h1 className="text-4xl font-bold text-gray-900 mb-3">Your Personas</h1>
               <p className="text-lg text-gray-600">Connect with AI recreations of your loved ones</p>
             </div>
-            {allPersonas.length > 0 && (
+            <div className="flex items-center gap-3">
+              {/* ✅ Record Your Legacy button on dashboard */}
               <button
-                onClick={() => setCurrentView('create-persona')}
-                className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition-all transform hover:scale-105"
+                onClick={() => setShowRecordYourLegacy(true)}
+                className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl font-semibold text-sm hover:shadow-lg transition-all"
               >
-                <Plus className="h-5 w-5" />
-                New Persona
+                <Mic className="h-4 w-4" />
+                Record My Legacy
               </button>
-            )}
+              {allPersonas.length > 0 && (
+                <button
+                  onClick={() => setCurrentView('create-persona')}
+                  className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition-all transform hover:scale-105"
+                >
+                  <Plus className="h-5 w-5" />
+                  New Persona
+                </button>
+              )}
+            </div>
           </div>
 
           {allPersonas.length === 0 ? (
@@ -439,13 +489,22 @@ function App() {
               <p className="text-lg text-gray-600 mb-10 max-w-2xl mx-auto leading-relaxed">
                 Begin your journey by creating an AI persona. Upload memories, voice recordings, and messages to bring their personality to life.
               </p>
-              <button
-                onClick={() => setCurrentView('create-persona')}
-                className="inline-flex items-center gap-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-10 py-5 rounded-full text-lg font-semibold hover:shadow-2xl transition-all duration-300 transform hover:scale-105"
-              >
-                <Plus className="h-6 w-6" />
-                Create Your First Persona
-              </button>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <button
+                  onClick={() => setCurrentView('create-persona')}
+                  className="inline-flex items-center gap-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-10 py-5 rounded-full text-lg font-semibold hover:shadow-2xl transition-all duration-300 transform hover:scale-105"
+                >
+                  <Plus className="h-6 w-6" />
+                  Create a Persona
+                </button>
+                <button
+                  onClick={() => setShowRecordYourLegacy(true)}
+                  className="inline-flex items-center gap-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white px-10 py-5 rounded-full text-lg font-semibold hover:shadow-2xl transition-all duration-300 transform hover:scale-105"
+                >
+                  <Mic className="h-6 w-6" />
+                  Record My Legacy
+                </button>
+              </div>
             </div>
           ) : (
             <>
@@ -599,6 +658,9 @@ function App() {
                     {isShared && (
                       <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-medium">Shared</span>
                     )}
+                    {selectedPersona.is_self_recorded && (
+                      <span className="text-xs bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full font-medium">My Legacy</span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -620,7 +682,6 @@ function App() {
                   Surprise
                 </button>
 
-                {/* ✅ Voice Notes in conversation view */}
                 <button
                   onClick={() => setVoiceNotePersona(selectedPersona)}
                   className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-semibold text-sm hover:bg-blue-100 transition-all"
@@ -760,7 +821,6 @@ function App() {
             />
           )}
 
-          {/* ✅ Voice Notes Modal */}
           {voiceNotePersona && (
             <VoiceNotes
               persona={voiceNotePersona}
@@ -778,6 +838,16 @@ function App() {
               onSkip={() => {
                 setShowGuidedConversation(false);
                 setCurrentView('conversation');
+              }}
+            />
+          )}
+
+          {/* ✅ Record Your Legacy */}
+          {showRecordYourLegacy && (
+            <RecordYourLegacy
+              onClose={() => {
+                setShowRecordYourLegacy(false);
+                refetch();
               }}
             />
           )}
