@@ -18,6 +18,7 @@ import { LegacyLetters } from './components/LegacyLetters';
 import { GuidedFirstConversation } from './components/GuidedFirstConversation';
 import { VoiceNotes } from './components/VoiceNotes';
 import { RecordYourLegacy } from './components/RecordYourLegacy';
+import { ClinicalPartnerships } from './components/ClinicalPartnerships';
 import { initializeMonitoring, setUserContext } from './lib/monitoring';
 import { initializeAnalytics, trackPageView } from './lib/analytics';
 import { Toaster } from 'react-hot-toast';
@@ -39,6 +40,7 @@ function App() {
   const [voiceNotePersona, setVoiceNotePersona] = useState<any>(null);
   const [showGuidedConversation, setShowGuidedConversation] = useState(false);
   const [showRecordYourLegacy, setShowRecordYourLegacy] = useState(false);
+  const [showClinicalPartnerships, setShowClinicalPartnerships] = useState(false);
 
   const { user, loading: authLoading, signOut } = useAuth();
   const { personas, sharedPersonas, loading: personasLoading, refetch } = usePersonas();
@@ -124,7 +126,6 @@ function App() {
                 >
                   Analytics
                 </button>
-                {/* ✅ Record Your Legacy in nav */}
                 <button
                   onClick={() => setShowRecordYourLegacy(true)}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-amber-600 hover:bg-amber-50 transition-all"
@@ -132,7 +133,23 @@ function App() {
                   <Mic className="h-4 w-4" />
                   Record My Legacy
                 </button>
+                <button
+                  onClick={() => setShowClinicalPartnerships(true)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-teal-600 hover:bg-teal-50 transition-all"
+                >
+                  <Shield className="h-4 w-4" />
+                  Clinical Partners
+                </button>
               </>
+            )}
+            {!user && (
+              <button
+                onClick={() => setShowClinicalPartnerships(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-teal-600 hover:bg-teal-50 transition-all"
+              >
+                <Shield className="h-4 w-4" />
+                For Clinicians
+              </button>
             )}
             {user ? (
               <div className="flex items-center gap-2 ml-2">
@@ -172,13 +189,21 @@ function App() {
               <button onClick={() => { setShowRecordYourLegacy(true); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-amber-600 hover:bg-amber-50 font-medium">
                 🎙️ Record My Legacy
               </button>
+              <button onClick={() => { setShowClinicalPartnerships(true); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-teal-600 hover:bg-teal-50 font-medium">
+                🏥 Clinical Partners
+              </button>
               <button onClick={() => { signOut(); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-50">Sign Out</button>
             </>
           )}
           {!user && (
-            <button onClick={() => { setIsAuthModalOpen(true); setIsMenuOpen(false); }} className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-full font-semibold">
-              Get Started
-            </button>
+            <>
+              <button onClick={() => { setShowClinicalPartnerships(true); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-teal-600 hover:bg-teal-50 font-medium">
+                🏥 For Clinicians
+              </button>
+              <button onClick={() => { setIsAuthModalOpen(true); setIsMenuOpen(false); }} className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-full font-semibold">
+                Get Started
+              </button>
+            </>
           )}
         </div>
       )}
@@ -381,7 +406,7 @@ function App() {
         </div>
       </section>
 
-      {/* ✅ Record Your Legacy section on landing page */}
+      {/* Record Your Legacy section */}
       <section className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-amber-50 to-orange-50">
         <div className="max-w-4xl mx-auto">
           <div className="bg-gradient-to-r from-amber-500 to-orange-500 rounded-3xl p-10 text-white text-center shadow-2xl">
@@ -389,9 +414,7 @@ function App() {
               <Mic className="h-8 w-8 text-white" />
             </div>
             <h2 className="text-3xl md:text-4xl font-bold mb-4">Record Your Own Legacy</h2>
-            <p className="text-xl text-white/80 mb-4 leading-relaxed">
-              Don't wait until it's too late.
-            </p>
+            <p className="text-xl text-white/80 mb-4 leading-relaxed">Don't wait until it's too late.</p>
             <p className="text-white/70 mb-8 leading-relaxed max-w-2xl mx-auto">
               Answer guided questions in your own voice — your wisdom, your memories, your love.
               Your family will be able to talk to an AI version of you that knows your stories and speaks in your voice.
@@ -401,6 +424,27 @@ function App() {
               className="bg-white text-amber-600 px-8 py-4 rounded-full font-bold text-lg hover:shadow-2xl transition-all hover:scale-105"
             >
               {user ? 'Record My Legacy' : 'Get Started'}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Clinical Partners section */}
+      <section className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-teal-50 to-blue-50">
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-gradient-to-r from-teal-600 to-blue-600 rounded-3xl p-10 text-white text-center shadow-2xl">
+            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Shield className="h-8 w-8 text-white" />
+            </div>
+            <h2 className="text-3xl md:text-4xl font-bold mb-4">For Grief Counselors & Hospice Professionals</h2>
+            <p className="text-white/80 mb-8 leading-relaxed max-w-2xl mx-auto">
+              Support your clients between sessions. AlwayZ gives grieving families a therapeutic bridge — available 24/7, clinically informed, and ethically designed to support healing.
+            </p>
+            <button
+              onClick={() => setShowClinicalPartnerships(true)}
+              className="bg-white text-teal-600 px-8 py-4 rounded-full font-bold text-lg hover:shadow-2xl transition-all hover:scale-105"
+            >
+              Explore Clinical Partnerships
             </button>
           </div>
         </div>
@@ -460,7 +504,6 @@ function App() {
               <p className="text-lg text-gray-600">Connect with AI recreations of your loved ones</p>
             </div>
             <div className="flex items-center gap-3">
-              {/* ✅ Record Your Legacy button on dashboard */}
               <button
                 onClick={() => setShowRecordYourLegacy(true)}
                 className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl font-semibold text-sm hover:shadow-lg transition-all"
@@ -842,13 +885,18 @@ function App() {
             />
           )}
 
-          {/* ✅ Record Your Legacy */}
           {showRecordYourLegacy && (
             <RecordYourLegacy
               onClose={() => {
                 setShowRecordYourLegacy(false);
                 refetch();
               }}
+            />
+          )}
+
+          {showClinicalPartnerships && (
+            <ClinicalPartnerships
+              onClose={() => setShowClinicalPartnerships(false)}
             />
           )}
         </div>
