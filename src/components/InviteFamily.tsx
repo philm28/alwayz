@@ -16,7 +16,19 @@ interface Collaborator {
   role: string;
   created_at: string;
   collaborator_id: string | null;
+  relationship_to_persona: string | null;
 }
+
+const RELATIONSHIPS = [
+  { value: 'spouse',      label: 'Spouse / Partner' },
+  { value: 'child',       label: 'Son / Daughter' },
+  { value: 'grandchild',  label: 'Grandchild' },
+  { value: 'parent',      label: 'Parent' },
+  { value: 'sibling',     label: 'Brother / Sister' },
+  { value: 'grandparent', label: 'Grandparent' },
+  { value: 'friend',      label: 'Close Friend' },
+  { value: 'other',       label: 'Other' },
+];
 
 export function InviteFamily({ persona, onClose }: InviteFamilyProps) {
   const { user } = useAuth();
@@ -24,6 +36,7 @@ export function InviteFamily({ persona, onClose }: InviteFamilyProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+  const [selectedRelationship, setSelectedRelationship] = useState('child');
 
   useEffect(() => {
     loadCollaborators();
@@ -47,6 +60,11 @@ export function InviteFamily({ persona, onClose }: InviteFamilyProps) {
   };
 
   const createInviteLink = async () => {
+    if (!selectedRelationship) {
+      toast.error('Please select their relationship to ' + persona.name);
+      return;
+    }
+
     setIsCreating(true);
     try {
       const { data, error } = await supabase
@@ -55,7 +73,8 @@ export function InviteFamily({ persona, onClose }: InviteFamilyProps) {
           persona_id: persona.id,
           owner_id: user?.id,
           status: 'pending',
-          role: 'collaborator'
+          role: 'collaborator',
+          relationship_to_persona: selectedRelationship
         })
         .select()
         .single();
@@ -65,7 +84,6 @@ export function InviteFamily({ persona, onClose }: InviteFamilyProps) {
       setCollaborators(prev => [...prev, data]);
       toast.success('Invite link created!');
 
-      // Auto copy to clipboard
       const link = `${window.location.origin}?invite=${data.invite_token}`;
       await navigator.clipboard.writeText(link);
       setCopiedToken(data.invite_token);
@@ -103,6 +121,25 @@ export function InviteFamily({ persona, onClose }: InviteFamilyProps) {
     }
   };
 
+  const getRelationshipLabel = (value: string | null) => {
+    if (!value) return null;
+    return RELATIONSHIPS.find(r => r.value === value)?.label || value;
+  };
+
+  // ✅ What the persona calls this person based on relationship
+  const getPersonaAddress = (relationship: string | null) => {
+    switch (relationship) {
+      case 'spouse':      return `${persona.name} will speak to them as a partner`;
+      case 'child':       return `${persona.name} will speak to them as a parent`;
+      case 'grandchild':  return `${persona.name} will speak to them as a grandparent`;
+      case 'parent':      return `${persona.name} will speak to them as a child`;
+      case 'sibling':     return `${persona.name} will speak to them as a sibling`;
+      case 'grandparent': return `${persona.name} will speak to them as a grandchild`;
+      case 'friend':      return `${persona.name} will speak to them as a close friend`;
+      default:            return `${persona.name} will adapt their tone accordingly`;
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden">
@@ -125,14 +162,45 @@ export function InviteFamily({ persona, onClose }: InviteFamilyProps) {
 
         <div className="p-8">
           <p className="text-gray-600 text-sm mb-6 leading-relaxed">
-            Generate a shareable link and send it to family members. When they click it and sign up,
-            they'll have access to {persona.name}'s persona and can add their own memories.
+            Generate a shareable link for each family member. Tell us their relationship
+            to {persona.name} so the persona speaks to them the right way.
           </p>
 
-          {/* Create new invite */}
+          {/* ✅ Relationship selector */}
+          <div className="mb-4">
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              This person is {persona.name}'s...
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {RELATIONSHIPS.map(rel => (
+                <button
+                  key={rel.value}
+                  onClick={() => setSelectedRelationship(rel.value)}
+                  className={`px-3 py-2.5 rounded-xl text-sm font-medium border-2 transition-all text-left ${
+                    selectedRelationship === rel.value
+                      ? 'border-blue-600 bg-blue-50 text-blue-700'
+                      : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                  }`}
+                >
+                  {rel.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ✅ Persona behavior preview */}
+          {selectedRelationship && (
+            <div className="mb-6 p-3 bg-purple-50 rounded-xl border border-purple-100">
+              <p className="text-xs text-purple-700">
+                💙 {getPersonaAddress(selectedRelationship)}
+              </p>
+            </div>
+          )}
+
+          {/* Create invite button */}
           <button
             onClick={createInviteLink}
-            disabled={isCreating}
+            disabled={isCreating || !selectedRelationship}
             className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-4 rounded-xl font-semibold hover:shadow-lg transition-all disabled:opacity-40 flex items-center justify-center gap-2 mb-8"
           >
             {isCreating ? (
@@ -165,7 +233,7 @@ export function InviteFamily({ persona, onClose }: InviteFamilyProps) {
                       <p className="text-xs font-mono text-gray-500 truncate">
                         {window.location.origin}?invite={collab.invite_token}
                       </p>
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
                           collab.status === 'accepted'
                             ? 'bg-green-100 text-green-700'
@@ -173,6 +241,12 @@ export function InviteFamily({ persona, onClose }: InviteFamilyProps) {
                         }`}>
                           {collab.status === 'accepted' ? '✓ Accepted' : 'Pending'}
                         </span>
+                        {/* ✅ Show relationship badge */}
+                        {collab.relationship_to_persona && (
+                          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                            {getRelationshipLabel(collab.relationship_to_persona)}
+                          </span>
+                        )}
                         <span className="text-xs text-gray-400">
                           {new Date(collab.created_at).toLocaleDateString()}
                         </span>
@@ -210,7 +284,10 @@ export function InviteFamily({ persona, onClose }: InviteFamilyProps) {
 
           <div className="mt-6 p-4 bg-blue-50 rounded-xl">
             <p className="text-xs text-blue-700 leading-relaxed">
-              <strong>How it works:</strong> Share the link via text or email. When your family member clicks it and creates an account, they'll automatically get access to {persona.name}. Each person has their own private conversations while sharing the same memories.
+              <strong>How it works:</strong> Share the link via text or email. When your family
+              member clicks it and creates an account, {persona.name} will automatically
+              know their relationship and speak to them accordingly. Each person has their
+              own private conversations while sharing the same memories.
             </p>
           </div>
         </div>
