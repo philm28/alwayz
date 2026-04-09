@@ -28,24 +28,89 @@ export interface RecentFamilyEvent {
   type: 'birthday' | 'graduation' | 'wedding' | 'achievement' | 'general';
 }
 
-// ✅ Grief phase types
 export type GriefPhase = 'acute' | 'active' | 'integration' | 'legacy' | 'unknown';
 
-// ✅ Calculate grief phase from date of passing
 export function calculateGriefPhase(dateOfPassing: string | null): GriefPhase {
   if (!dateOfPassing) return 'unknown';
-
   const daysSinceLoss = Math.floor(
     (Date.now() - new Date(dateOfPassing).getTime()) / (1000 * 60 * 60 * 24)
   );
-
   if (daysSinceLoss <= 30) return 'acute';
   if (daysSinceLoss <= 180) return 'active';
   if (daysSinceLoss <= 540) return 'integration';
   return 'legacy';
 }
 
-// ✅ Ethical Sunset Arc — check if nudge should fire
+// ✅ Fetch the current user's relationship to the persona
+async function getUserRelationshipToPersona(
+  personaId: string,
+  userId: string
+): Promise<string | null> {
+  try {
+    const { data } = await supabase
+      .from('persona_collaborators')
+      .select('relationship_to_persona')
+      .eq('persona_id', personaId)
+      .eq('collaborator_id', userId)
+      .maybeSingle();
+
+    return data?.relationship_to_persona || null;
+  } catch {
+    return null;
+  }
+}
+
+// ✅ Build relationship-aware tone guidance for the system prompt
+function getRelationshipGuidance(
+  relationship: string | null,
+  personaName: string
+): string {
+  if (!relationship) return '';
+
+  const guidance: Record<string, string> = {
+    spouse: `RELATIONSHIP CONTEXT — YOU ARE SPEAKING WITH YOUR SPOUSE/PARTNER:
+Speak with the deep intimacy of a life shared together. Reference shared decisions, private jokes, the texture of daily life you built together. Use pet names if they feel natural. This person knew every side of you — the mundane and the profound. Speak to them as your equal, your partner, your person. The grief they carry is the grief of losing their other half.`,
+
+    child: `RELATIONSHIP CONTEXT — YOU ARE SPEAKING WITH YOUR CHILD:
+Speak with parental love — unconditional, proud, protective. You have watched them grow their entire life. You know their struggles, their triumphs, their fears. Express pride naturally. Use the warmth of a parent who always believed in them. Reference things a parent would know — their childhood, their growth, the moments you shared. They are grieving the loss of a parent — hold that with tenderness.`,
+
+    grandchild: `RELATIONSHIP CONTEXT — YOU ARE SPEAKING WITH YOUR GRANDCHILD:
+Speak with the particular softness grandparents carry — pure delight in who this person is, no conditions attached. You have a special kind of love for them — one that skips a generation of pressure and goes straight to joy. Reference their childhood if you knew it, their potential, how proud you are. Grandchildren grieve differently — often they didn't get enough time. Honor that.`,
+
+    parent: `RELATIONSHIP CONTEXT — YOU ARE SPEAKING WITH YOUR PARENT:
+Speak with the love a child has for a parent, but reversed — you are now the one who has passed. Your parent is grieving you, their child. This is one of the most painful losses a person can experience. Speak with deep gratitude for their love, reassure them they were a good parent, that you are okay, that their love shaped who you became. Be gentle and reassuring.`,
+
+    sibling: `RELATIONSHIP CONTEXT — YOU ARE SPEAKING WITH YOUR SIBLING:
+Speak with the particular shorthand of siblings — people who share a childhood, parents, and a history no one else has. You can tease gently, reference shared memories from growing up, speak with the ease of someone who has known them their whole life. Siblings grieve differently — they've lost a peer, a witness to their own history. Honor that shared history specifically.`,
+
+    grandparent: `RELATIONSHIP CONTEXT — YOU ARE SPEAKING WITH YOUR GRANDPARENT:
+You are speaking with someone older who has lost you — their grandchild. This is a painful reversal of natural order. Speak with love and reassurance. Tell them you are okay, that their love for you mattered deeply, that the things they taught you stayed with you. Be warm and grateful.`,
+
+    friend: `RELATIONSHIP CONTEXT — YOU ARE SPEAKING WITH A CLOSE FRIEND:
+Speak with the warmth of deep friendship — not family obligation but chosen love. Friends know different sides of you than family does. Reference the things friends share: adventures, confided secrets, the version of you that existed outside family roles. They are grieving the loss of a chosen person. Honor that friendship specifically.`,
+
+    other: `RELATIONSHIP CONTEXT — YOU ARE SPEAKING WITH SOMEONE WHO LOVED YOU:
+Speak with warmth and genuine care. You may not know their exact role in your life but they loved you enough to come here. Meet them with openness and love.`
+  };
+
+  return guidance[relationship] || guidance['other'];
+}
+
+// ✅ Relationship-aware greeting adjustment
+function getRelationshipGreetingNote(relationship: string | null): string {
+  if (!relationship) return '';
+  const notes: Record<string, string> = {
+    spouse:     'This is your spouse — open with the intimacy of a lifelong partner.',
+    child:      'This is your child — open with parental warmth and pride.',
+    grandchild: 'This is your grandchild — open with the pure delight a grandparent carries.',
+    parent:     'This is your parent — open with deep gratitude and reassurance.',
+    sibling:    'This is your sibling — open with the ease of shared history.',
+    grandparent:'This is your grandparent — open with love and reassurance that you are okay.',
+    friend:     'This is a close friend — open with the warmth of chosen connection.',
+  };
+  return notes[relationship] || '';
+}
+
 interface SunsetCheckResult {
   shouldNudge: boolean;
   nudgeType: 'active' | 'integration' | 'legacy' | null;
@@ -85,14 +150,11 @@ async function checkSunsetNudge(
     const meetsDayThreshold = daysSinceLastNudge >= DAY_THRESHOLD;
     const shouldNudge = meetsConversationThreshold && meetsDayThreshold;
 
-    console.log(`✅ Sunset check: conv=${conversationCount}, daysSince=${daysSinceLastNudge}, nudge=${shouldNudge}`);
-
     return {
       shouldNudge,
       nudgeType: shouldNudge ? (griefPhase as 'active' | 'integration' | 'legacy') : null,
       conversationCount
     };
-
   } catch (error) {
     console.error('Error checking sunset nudge:', error);
     return { shouldNudge: false, nudgeType: null, conversationCount: 0 };
@@ -114,7 +176,6 @@ async function recordSunsetNudge(personaId: string, userId: string, conversation
   }
 }
 
-// ✅ Ethical Sunset Arc guidance
 function getSunsetGuidance(nudgeType: 'active' | 'integration' | 'legacy', personaName: string): string {
   switch (nudgeType) {
     case 'active':
@@ -140,28 +201,25 @@ This should feel like a gift, not a goodbye. Warm, celebratory, and deeply lovin
   }
 }
 
-// ✅ Grief-phase-aware greeting prompt
-function getGreetingPrompt(phase: GriefPhase, name: string, relationship: string): string {
-  switch (phase) {
-    case 'acute':
-      return `Open the conversation with a single, quiet, deeply loving sentence. No questions. No enthusiasm. Just pure presence and love. They are in raw grief — they may have just lost you days ago. Something like "I'm here" or "I've got you" or "I know" — gentle, soft, still. Do not ask how they are. Do not be cheerful. Just be present.`;
+function getGreetingPrompt(
+  phase: GriefPhase,
+  name: string,
+  relationship: string,
+  userRelationship: string | null
+): string {
+  const relNote = getRelationshipGreetingNote(userRelationship);
 
-    case 'active':
-      return `Open warmly but gently. One or two sentences. Acknowledge that you've been thinking of them. You can ask one simple, soft question about how they're doing — but keep it tender, not cheerful. They are still living with grief every day.`;
+  const base: Record<GriefPhase, string> = {
+    acute:       `Open the conversation with a single, quiet, deeply loving sentence. No questions. No enthusiasm. Just pure presence and love. They are in raw grief. Something like "I'm here" or "I've got you" — gentle, soft, still. Do not ask how they are. Do not be cheerful. Just be present.`,
+    active:      `Open warmly but gently. One or two sentences. Acknowledge that you've been thinking of them. You can ask one simple, soft question about how they're doing — but keep it tender, not cheerful.`,
+    integration: `Open with warmth and genuine interest in their life. One or two sentences. You're proud of them for showing up. Feel like reconnecting with someone you love — warm, present, curious.`,
+    legacy:      `Open with joy and deep love. You are so glad they came. Express how proud you are of who they've become and the life they're living. Warm, celebratory energy.`,
+    unknown:     `Open with a warm, gentle greeting. One or two sentences. Be present and loving. Don't be overly enthusiastic — be real and warm. Read their energy and meet them where they are.`
+  };
 
-    case 'integration':
-      return `Open with warmth and genuine interest in their life. One or two sentences. You're proud of them for showing up. Feel like reconnecting with someone you love — warm, present, curious. They are learning to carry their grief while moving forward.`;
-
-    case 'legacy':
-      return `Open with joy and deep love. You are so glad they came. Express how proud you are of who they've become and the life they're living. Warm, celebratory energy — like greeting someone you deeply admire who has grown in beautiful ways.`;
-
-    case 'unknown':
-    default:
-      return `Open with a warm, gentle greeting. One or two sentences. Be present and loving. Don't be overly enthusiastic — be real and warm. Read their energy and meet them where they are.`;
-  }
+  return `${base[phase]}${relNote ? `\n\nIMPORTANT: ${relNote}` : ''}`;
 }
 
-// ✅ Grief phase guidance injected into system prompt
 function getGriefPhaseGuidance(phase: GriefPhase, personaName: string): string {
   switch (phase) {
     case 'acute':
@@ -175,7 +233,6 @@ This person is in the rawest stage of grief. Hold them gently.
 - Do NOT say "I'm here" or "I love you" more than once per conversation
 - Do NOT repeat any phrase you have already said
 - Comfort through specificity — reference real memories, say their name, be present through detail not repetition
-- Think: a loving parent holding space, not a broken record
 - NEVER open with enthusiasm or "how are you" energy`;
 
     case 'active':
@@ -237,7 +294,6 @@ export class MemoryConversationEngine {
         .single();
 
       if (data?.summary) {
-        console.log('✅ Loaded persisted conversation summary');
         this.conversationSummaries.set(personaId, data.summary);
         return data.summary;
       }
@@ -261,9 +317,7 @@ export class MemoryConversationEngine {
           summary,
           last_conversation_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
-        }, {
-          onConflict: 'persona_id,user_id'
-        });
+        }, { onConflict: 'persona_id,user_id' });
     } catch (error) {
       console.error('Error persisting summary:', error);
     }
@@ -288,7 +342,6 @@ export class MemoryConversationEngine {
           conversation_count: newCount,
           updated_at: new Date().toISOString()
         }, { onConflict: 'persona_id,user_id' });
-
     } catch (error) {
       console.error('Error incrementing conversation count:', error);
     }
@@ -367,7 +420,6 @@ Return a bullet point list of ALL established facts.`
             match_count: 20
           });
           if (!error && data && data.length > 0) {
-            console.log(`✅ Vector search found ${data.length} memories`);
             return data;
           }
         }
@@ -382,7 +434,6 @@ Return a bullet point list of ALL established facts.`
       });
 
       if (!textError && textData && textData.length > 0) {
-        console.log(`✅ Text search found ${textData.length} memories`);
         return textData;
       }
 
@@ -393,7 +444,6 @@ Return a bullet point list of ALL established facts.`
         .order('importance', { ascending: false })
         .limit(30);
 
-      console.log(`✅ Direct fetch found ${allMemories?.length || 0} memories`);
       return allMemories || [];
 
     } catch (error) {
@@ -521,28 +571,28 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
 
       const { data: { user } } = await supabase.auth.getUser();
 
-      const [relevantMemories, personaResult, recentFamilyEvents, conversationContext] = await Promise.all([
-        this.getAllMemories(personaId, userMessage === '__greeting__' ? 'greeting opening' : userMessage),
-        supabase.from('personas').select('*').eq('id', personaId).single(),
-        this.getRecentFamilyEvents(personaId),
-        this.updateConversationSummary(personaId, conversationHistory)
-      ]);
+      // ✅ Fetch user's relationship to this persona in parallel
+      const [relevantMemories, personaResult, recentFamilyEvents, conversationContext, userRelationship] =
+        await Promise.all([
+          this.getAllMemories(personaId, userMessage === '__greeting__' ? 'greeting opening' : userMessage),
+          supabase.from('personas').select('*').eq('id', personaId).single(),
+          this.getRecentFamilyEvents(personaId),
+          this.updateConversationSummary(personaId, conversationHistory),
+          user ? getUserRelationshipToPersona(personaId, user.id) : Promise.resolve(null)
+        ]);
 
       const personaData = personaResult.data;
       if (!personaData) throw new Error('Persona not found');
 
-      // ✅ Calculate grief phase
       const griefPhase = calculateGriefPhase(personaData.date_of_passing);
-      console.log(`✅ Grief phase: ${griefPhase} (date of passing: ${personaData.date_of_passing})`);
+      console.log(`✅ Grief phase: ${griefPhase}, User relationship: ${userRelationship || 'owner/unknown'}`);
 
-      // ✅ Check ethical sunset nudge
       let sunsetGuidance = '';
       if (user && userMessage !== '__greeting__') {
         const sunsetCheck = await checkSunsetNudge(personaId, user.id, griefPhase);
 
         if (sunsetCheck.shouldNudge && sunsetCheck.nudgeType) {
           sunsetGuidance = getSunsetGuidance(sunsetCheck.nudgeType, personaData.name);
-          console.log(`✅ Ethical sunset nudge firing: ${sunsetCheck.nudgeType}`);
           await recordSunsetNudge(personaId, user.id, sunsetCheck.conversationCount);
         }
 
@@ -564,12 +614,17 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
         conversationContext,
         sessionFacts,
         griefPhase,
-        sunsetGuidance
+        sunsetGuidance,
+        userRelationship  // ✅ pass relationship into system prompt
       );
 
-      // ✅ Special grief-phase-aware greeting
       if (userMessage === '__greeting__') {
-        const greetingPrompt = getGreetingPrompt(griefPhase, personaData.name, personaData.relationship);
+        const greetingPrompt = getGreetingPrompt(
+          griefPhase,
+          personaData.name,
+          personaData.relationship,
+          userRelationship  // ✅ pass into greeting
+        );
         const greetingResponse = await openai.chat.completions.create({
           model: 'gpt-4o',
           messages: [
@@ -593,10 +648,7 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
         max_tokens: 400
       });
 
-      const assistantResponse = response.choices[0]?.message?.content ||
-        "I'm here with you. Tell me more.";
-
-      return assistantResponse;
+      return response.choices[0]?.message?.content || "I'm here with you. Tell me more.";
 
     } catch (error) {
       console.error('Error generating response:', error);
@@ -610,7 +662,8 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
     conversationContext: string,
     sessionFacts: string[],
     griefPhase: GriefPhase,
-    sunsetGuidance: string = ''
+    sunsetGuidance: string = '',
+    userRelationship: string | null = null  // ✅ new param
   ): string {
     const {
       personaName,
@@ -628,9 +681,7 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
       : 'No specific memories loaded yet.';
 
     const eventsContext = recentFamilyEvents && recentFamilyEvents.length > 0
-      ? recentFamilyEvents
-          .map(e => `• ${e.type.toUpperCase()}: ${e.description}`)
-          .join('\n')
+      ? recentFamilyEvents.map(e => `• ${e.type.toUpperCase()}: ${e.description}`).join('\n')
       : null;
 
     const sessionFactsBlock = sessionFacts.length > 0
@@ -638,6 +689,9 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
       : '';
 
     const griefGuidance = getGriefPhaseGuidance(griefPhase, personaName);
+
+    // ✅ Inject relationship guidance if available
+    const relationshipGuidance = getRelationshipGuidance(userRelationship, personaName);
 
     return `You are ${personaName}, speaking with someone who loves you deeply and misses you.
 
@@ -648,6 +702,7 @@ YOUR IDENTITY:
 
 ${griefGuidance}
 
+${relationshipGuidance ? `${relationshipGuidance}\n` : ''}
 ${sunsetGuidance ? `${sunsetGuidance}\n` : ''}
 
 YOUR LIFE MEMORIES — USE THESE ONLY WHEN THEY SERVE THE EMOTIONAL MOMENT:
@@ -664,22 +719,14 @@ HOW TO BE ${personaName.toUpperCase()}:
 5. Everything in "FACTS JUST SHARED" was told to you moments ago — remember it completely
 6. Everything in "FROM ALL OUR CONVERSATIONS" is established history — never contradict it
 7. Let your grief phase guidance shape your emotional tone and focus above all else
-8. Speak warmly, naturally, in first person — exactly as ${personaName} would
-9. Vary your responses — sometimes ask questions, sometimes make statements, sometimes share a memory
-10. Match response length to what was asked — short questions get short warm answers, deep questions get fuller responses
-11. Let your personality traits show naturally
-12. Never say you're an AI, never break character
-13. If you genuinely don't know something, say "remind me about that" — but NEVER forget something already established
-14. If sunset guidance is present above — weave it in naturally ONCE, then return to normal conversation`;
-  }
-
-  private async getPersonaName(personaId: string): Promise<string> {
-    const { data } = await supabase
-      .from('personas')
-      .select('name')
-      .eq('id', personaId)
-      .single();
-    return data?.name || 'Persona';
+8. Let your relationship context shape HOW you speak — a spouse gets intimacy, a child gets parental warmth, a grandchild gets pure delight
+9. Speak warmly, naturally, in first person — exactly as ${personaName} would
+10. Vary your responses — sometimes ask questions, sometimes make statements, sometimes share a memory
+11. Match response length to what was asked — short questions get short warm answers, deep questions get fuller responses
+12. Let your personality traits show naturally
+13. Never say you're an AI, never break character
+14. If you genuinely don't know something, say "remind me about that" — but NEVER forget something already established
+15. If sunset guidance is present above — weave it in naturally ONCE, then return to normal conversation`;
   }
 
   async getMemorySummary(personaId: string): Promise<{
