@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { HelmetProvider } from 'react-helmet-async';
-import { Heart, Video, Upload, MessageCircle, Shield, Play, Sparkles, Plus, LogOut, Brain, Menu, X, Clock, Users, BookOpen, Mail, Volume2, Mic } from 'lucide-react';
+import { Heart, Video, Upload, MessageCircle, Shield, Play, Sparkles, Plus, LogOut, Brain, Menu, X, Clock, Users, BookOpen, Mail, Volume2, Mic, Trash2, AlertTriangle } from 'lucide-react';
 import { useAuth } from './hooks/useAuth';
 import { usePersonas } from './hooks/usePersonas';
 import { AuthModal } from './components/AuthModal';
@@ -24,6 +24,7 @@ import { initializeMonitoring, setUserContext } from './lib/monitoring';
 import { initializeAnalytics, trackPageView } from './lib/analytics';
 import { Toaster } from 'react-hot-toast';
 import { supabase } from './lib/supabase';
+import toast from 'react-hot-toast';
 
 initializeMonitoring();
 initializeAnalytics();
@@ -43,8 +44,15 @@ function App() {
   const [showRecordYourLegacy, setShowRecordYourLegacy] = useState(false);
   const [showClinicalPartnerships, setShowClinicalPartnerships] = useState(false);
 
+  // ✅ Delete confirmation state
+  const [deleteConfirmPersona, setDeleteConfirmPersona] = useState<any>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // ✅ Empty persona nudge state
+  const [emptyPersonaNudge, setEmptyPersonaNudge] = useState<any>(null);
+
   const { user, loading: authLoading, signOut, hasAgreedToTerms, checkingAgreement, markAgreedToTerms } = useAuth();
-  const { personas, sharedPersonas, loading: personasLoading, refetch } = usePersonas();
+  const { personas, sharedPersonas, loading: personasLoading, refetch, deletePersona } = usePersonas();
 
   useEffect(() => {
     if (user) {
@@ -78,7 +86,6 @@ function App() {
         .eq('persona_id', persona.id)
         .eq('user_id', user.id)
         .maybeSingle();
-
       if (error) return false;
       return !data;
     } catch {
@@ -86,9 +93,41 @@ function App() {
     }
   };
 
+  // ✅ Check if persona has enough content for a good experience
+  const checkPersonaReadiness = async (persona: any): Promise<boolean> => {
+    try {
+      const [memoriesResult, contentResult] = await Promise.all([
+        supabase
+          .from('persona_memories')
+          .select('id')
+          .eq('persona_id', persona.id)
+          .limit(1),
+        supabase
+          .from('persona_content')
+          .select('id')
+          .eq('persona_id', persona.id)
+          .limit(1)
+      ]);
+
+      const hasMemories = (memoriesResult.data?.length || 0) > 0;
+      const hasContent = (contentResult.data?.length || 0) > 0;
+
+      return hasMemories || hasContent;
+    } catch {
+      return true; // fail open — don't block conversation
+    }
+  };
+
   const openConversation = async (persona: any, type: 'chat' | 'video_call' | 'voice_call' = 'voice_call') => {
     setSelectedPersona(persona);
     setConversationType(type);
+
+    // ✅ Check if persona has any content
+    const isReady = await checkPersonaReadiness(persona);
+    if (!isReady) {
+      setEmptyPersonaNudge(persona);
+      return;
+    }
 
     const isFirst = await checkFirstConversation(persona);
     if (isFirst) {
@@ -101,6 +140,25 @@ function App() {
   const handleBackToDashboard = () => {
     setSelectedPersona(null);
     setCurrentView('dashboard');
+  };
+
+  // ✅ Handle persona delete with confirmation
+  const handleDeletePersona = async (persona: any) => {
+    setIsDeleting(true);
+    try {
+      const success = await deletePersona(persona.id);
+      if (success) {
+        toast.success(`${persona.name}'s persona has been removed`);
+        setDeleteConfirmPersona(null);
+        await refetch();
+      } else {
+        toast.error('Could not delete persona. Please try again.');
+      }
+    } catch {
+      toast.error('Could not delete persona. Please try again.');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const Navigation = () => (
@@ -242,6 +300,20 @@ function App() {
             )}
           </div>
         </div>
+
+        {/* ✅ Delete button — top right, only for owned personas */}
+        {!isShared && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setDeleteConfirmPersona(persona);
+            }}
+            className="absolute top-3 right-3 w-8 h-8 bg-black/40 hover:bg-red-500/80 backdrop-blur rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200"
+            title="Delete persona"
+          >
+            <Trash2 className="h-4 w-4 text-white" />
+          </button>
+        )}
       </div>
 
       <div className="p-4">
@@ -720,7 +792,6 @@ function App() {
                   <BookOpen className="h-4 w-4" />
                   Add Memories
                 </button>
-
                 <button
                   onClick={() => setSurprisePersona(selectedPersona)}
                   className="flex items-center gap-2 px-4 py-2 bg-purple-50 text-purple-600 rounded-xl font-semibold text-sm hover:bg-purple-100 transition-all"
@@ -728,7 +799,6 @@ function App() {
                   <Sparkles className="h-4 w-4" />
                   Surprise
                 </button>
-
                 <button
                   onClick={() => setVoiceNotePersona(selectedPersona)}
                   className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-semibold text-sm hover:bg-blue-100 transition-all"
@@ -736,7 +806,6 @@ function App() {
                   <Volume2 className="h-4 w-4" />
                   Voice Notes
                 </button>
-
                 <button
                   onClick={() => setLegacyPersona(selectedPersona)}
                   className="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-600 rounded-xl font-semibold text-sm hover:bg-amber-100 transition-all"
@@ -744,7 +813,6 @@ function App() {
                   <Mail className="h-4 w-4" />
                   Legacy
                 </button>
-
                 <button
                   onClick={() => setShowGuidedConversation(true)}
                   className="flex items-center gap-2 px-4 py-2 bg-slate-50 text-slate-600 rounded-xl font-semibold text-sm hover:bg-slate-100 transition-all"
@@ -752,7 +820,6 @@ function App() {
                   <Heart className="h-4 w-4" />
                   Guide
                 </button>
-
                 {!isShared && (
                   <button
                     onClick={() => setInvitePersona(selectedPersona)}
@@ -762,7 +829,6 @@ function App() {
                     Invite Family
                   </button>
                 )}
-
                 <div className="flex gap-2 bg-white rounded-lg p-1 shadow-sm">
                   <button
                     onClick={() => setConversationType('chat')}
@@ -823,7 +889,6 @@ function App() {
     </div>
   );
 
-  // ✅ Show loading spinner while checking agreement
   if (authLoading || (user && checkingAgreement)) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center">
@@ -864,67 +929,154 @@ function App() {
           />
 
           {surprisePersona && (
-            <SurpriseMessage
-              persona={surprisePersona}
-              onClose={() => setSurprisePersona(null)}
-            />
+            <SurpriseMessage persona={surprisePersona} onClose={() => setSurprisePersona(null)} />
           )}
-
           {invitePersona && (
-            <InviteFamily
-              persona={invitePersona}
-              onClose={() => setInvitePersona(null)}
-            />
+            <InviteFamily persona={invitePersona} onClose={() => setInvitePersona(null)} />
           )}
-
           {legacyPersona && (
-            <LegacyLetters
-              persona={legacyPersona}
-              onClose={() => setLegacyPersona(null)}
-            />
+            <LegacyLetters persona={legacyPersona} onClose={() => setLegacyPersona(null)} />
           )}
-
           {voiceNotePersona && (
-            <VoiceNotes
-              persona={voiceNotePersona}
-              onClose={() => setVoiceNotePersona(null)}
-            />
+            <VoiceNotes persona={voiceNotePersona} onClose={() => setVoiceNotePersona(null)} />
           )}
 
           {showGuidedConversation && selectedPersona && (
             <GuidedFirstConversation
               persona={selectedPersona}
-              onBegin={() => {
-                setShowGuidedConversation(false);
-                setCurrentView('conversation');
-              }}
-              onSkip={() => {
-                setShowGuidedConversation(false);
-                setCurrentView('conversation');
-              }}
+              onBegin={() => { setShowGuidedConversation(false); setCurrentView('conversation'); }}
+              onSkip={() => { setShowGuidedConversation(false); setCurrentView('conversation'); }}
             />
           )}
 
           {showRecordYourLegacy && (
-            <RecordYourLegacy
-              onClose={() => {
-                setShowRecordYourLegacy(false);
-                refetch();
-              }}
-            />
+            <RecordYourLegacy onClose={() => { setShowRecordYourLegacy(false); refetch(); }} />
           )}
 
           {showClinicalPartnerships && (
-            <ClinicalPartnerships
-              onClose={() => setShowClinicalPartnerships(false)}
-            />
+            <ClinicalPartnerships onClose={() => setShowClinicalPartnerships(false)} />
           )}
 
-          {/* ✅ Terms & Conditions gate — shows after login if not yet agreed */}
           {user && !hasAgreedToTerms && !checkingAgreement && (
-            <TermsAndConditions
-              onAccept={() => markAgreedToTerms()}
-            />
+            <TermsAndConditions onAccept={() => markAgreedToTerms()} />
+          )}
+
+          {/* ✅ DELETE CONFIRMATION MODAL */}
+          {deleteConfirmPersona && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8">
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
+                    <AlertTriangle className="h-7 w-7 text-red-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900">Delete {deleteConfirmPersona.name}?</h3>
+                    <p className="text-gray-500 text-sm mt-1">This cannot be undone</p>
+                  </div>
+                </div>
+
+                <div className="bg-red-50 rounded-xl p-4 mb-6 border border-red-100">
+                  <p className="text-sm text-red-700 leading-relaxed">
+                    This will permanently delete <strong>{deleteConfirmPersona.name}'s</strong> persona, including all memories, voice recordings, conversation history, and scheduled messages. This action cannot be reversed.
+                  </p>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setDeleteConfirmPersona(null)}
+                    disabled={isDeleting}
+                    className="flex-1 px-6 py-3 border border-gray-200 rounded-xl font-semibold text-gray-700 hover:bg-gray-50 transition-all disabled:opacity-40"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleDeletePersona(deleteConfirmPersona)}
+                    disabled={isDeleting}
+                    className="flex-1 px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+                  >
+                    {isDeleting ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                        Deleting...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="h-4 w-4" />
+                        Delete Forever
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ✅ EMPTY PERSONA NUDGE MODAL */}
+          {emptyPersonaNudge && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8">
+                <div className="text-center mb-6">
+                  <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Heart className="h-8 w-8 text-white" fill="currentColor" />
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">
+                    {emptyPersonaNudge.name} needs a little more
+                  </h3>
+                  <p className="text-gray-500 text-sm leading-relaxed">
+                    For the best experience, add a voice sample or a few memories first. The more you share, the more authentic the conversation will feel.
+                  </p>
+                </div>
+
+                <div className="space-y-3 mb-6">
+                  <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-xl">
+                    <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                      <Mic className="h-4 w-4 text-blue-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-blue-900">Add a voice sample</p>
+                      <p className="text-xs text-blue-600">Even one voicemail brings them to life</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 p-3 bg-purple-50 rounded-xl">
+                    <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center flex-shrink-0">
+                      <BookOpen className="h-4 w-4 text-purple-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-purple-900">Share a memory</p>
+                      <p className="text-xs text-purple-600">A story, a phrase, something they loved</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      setEmptyPersonaNudge(null);
+                      setEnrichingPersona(emptyPersonaNudge);
+                      setCurrentView('enrich-persona');
+                    }}
+                    className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition-all"
+                  >
+                    Add Memories First
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const persona = emptyPersonaNudge;
+                      setEmptyPersonaNudge(null);
+                      const isFirst = await checkFirstConversation(persona);
+                      if (isFirst) {
+                        setShowGuidedConversation(true);
+                      } else {
+                        setCurrentView('conversation');
+                      }
+                    }}
+                    className="flex-1 px-6 py-3 border border-gray-200 rounded-xl font-semibold text-gray-600 hover:bg-gray-50 transition-all text-sm"
+                  >
+                    Talk Anyway
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </ErrorBoundary>
