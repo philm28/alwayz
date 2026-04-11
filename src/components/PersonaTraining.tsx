@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Brain, CheckCircle, Clock, AlertCircle, Zap, Heart, Upload, MessageCircle, BookOpen, Plus, Mic, StopCircle, Globe, X, ChevronRight, Save, Calendar, Camera } from 'lucide-react';
+import { Brain, CheckCircle, Clock, AlertCircle, Zap, Heart, Upload, MessageCircle, BookOpen, Plus, Mic, StopCircle, Globe, X, ChevronRight, Save, Calendar, Camera, Sparkles, Quote, Users2, Repeat, Lightbulb } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -31,7 +31,12 @@ interface PersonaFormData {
 interface Memory {
   id: string;
   text: string;
-  type: 'story' | 'trait' | 'phrase' | 'career' | 'interest' | 'relationship';
+  type: 'story' | 'trait' | 'phrase' | 'career' | 'interest' | 'relationship' | 'signature' | 'values';
+}
+
+interface NicknameEntry {
+  person: string;
+  nickname: string;
 }
 
 const TRAIT_OPTIONS = [
@@ -69,7 +74,7 @@ export function PersonaTraining({
     name: '', relationship: '', gender: '', description: '', dateOfPassing: ''
   });
 
-  // ✅ Photo state
+  // Photo state
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -87,6 +92,14 @@ export function PersonaTraining({
   const memoryRecorderRef = useRef<MediaRecorder | null>(null);
   const memoryChunksRef = useRef<Blob[]>([]);
 
+  // ✅ Deep persona state
+  const [signaturePhrases, setSignaturePhrases] = useState('');
+  const [nicknameEntries, setNicknameEntries] = useState<NicknameEntry[]>([{ person: '', nickname: '' }]);
+  const [storyAnchors, setStoryAnchors] = useState('');
+  const [emotionalPatterns, setEmotionalPatterns] = useState('');
+  const [valuesBeliefs, setValuesBeliefs] = useState('');
+  const [savingDeep, setSavingDeep] = useState(false);
+
   // Training state
   const [trainingSteps, setTrainingSteps] = useState<TrainingStep[]>([
     { id: 'content-analysis', name: 'Content Analysis', description: 'Analyzing uploaded content', status: 'pending', progress: 0 },
@@ -102,7 +115,7 @@ export function PersonaTraining({
     if (initialPersonaId) {
       supabase
         .from('personas')
-        .select('name, personality_traits, date_of_passing')
+        .select('name, personality_traits, date_of_passing, signature_phrases, nickname_map, story_anchors, emotional_patterns, values_beliefs')
         .eq('id', initialPersonaId)
         .single()
         .then(({ data }) => {
@@ -110,10 +123,16 @@ export function PersonaTraining({
             setPersonaName(data.name);
             if (data.personality_traits) {
               const traits = data.personality_traits.split(', ');
-              const matchedTraits = traits.filter((t: string) => TRAIT_OPTIONS.includes(t));
-              const matchedStyles = traits.filter((t: string) => SPEAKING_STYLES.includes(t));
-              setSelectedTraits(matchedTraits);
-              setSelectedStyles(matchedStyles);
+              setSelectedTraits(traits.filter((t: string) => TRAIT_OPTIONS.includes(t)));
+              setSelectedStyles(traits.filter((t: string) => SPEAKING_STYLES.includes(t)));
+            }
+            // ✅ Load existing deep persona data
+            if (data.signature_phrases) setSignaturePhrases(data.signature_phrases);
+            if (data.story_anchors) setStoryAnchors(data.story_anchors);
+            if (data.emotional_patterns) setEmotionalPatterns(data.emotional_patterns);
+            if (data.values_beliefs) setValuesBeliefs(data.values_beliefs);
+            if (data.nickname_map && Array.isArray(data.nickname_map)) {
+              setNicknameEntries(data.nickname_map.length > 0 ? data.nickname_map : [{ person: '', nickname: '' }]);
             }
           }
         });
@@ -147,7 +166,6 @@ export function PersonaTraining({
     }
   };
 
-  // ✅ Handle photo selection
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -155,23 +173,18 @@ export function PersonaTraining({
     setPhotoPreview(URL.createObjectURL(file));
   };
 
-  // ✅ Upload photo to Supabase storage
-  const uploadPhoto = async (personaId: string): Promise<string> => {
+  const uploadPhoto = async (pId: string): Promise<string> => {
     if (!photoFile || !user) return '';
     try {
       const ext = photoFile.name.split('.').pop();
-      const fileName = `avatars/${user.id}/${personaId}.${ext}`;
-
+      const fileName = `avatars/${user.id}/${pId}.${ext}`;
       const { error } = await supabase.storage
         .from('persona-content')
         .upload(fileName, photoFile, { contentType: photoFile.type, upsert: true });
-
       if (error) throw error;
-
       const { data: { publicUrl } } = supabase.storage
         .from('persona-content')
         .getPublicUrl(fileName);
-
       return publicUrl;
     } catch (error) {
       console.error('Error uploading photo:', error);
@@ -197,10 +210,68 @@ export function PersonaTraining({
         content: memory.text,
         memory_type: memory.type,
         source_type: 'manual',
-        importance: 0.8
+        importance: memory.type === 'signature' || memory.type === 'values' ? 0.98 : 0.8
       });
     if (error) console.error('Error saving memory:', error);
   }, [personaId]);
+
+  // ✅ Save all deep persona fields to DB
+  const saveDeepPersona = async () => {
+    if (!personaId) return;
+    setSavingDeep(true);
+    try {
+      const validNicknames = nicknameEntries.filter(n => n.person.trim() && n.nickname.trim());
+
+      await supabase
+        .from('personas')
+        .update({
+          signature_phrases: signaturePhrases || null,
+          nickname_map: validNicknames.length > 0 ? validNicknames : null,
+          story_anchors: storyAnchors || null,
+          emotional_patterns: emotionalPatterns || null,
+          values_beliefs: valuesBeliefs || null,
+        })
+        .eq('id', personaId);
+
+      // ✅ Also save as high-importance memories so they flow into conversations
+      const deepMemories = [
+        { text: signaturePhrases, type: 'signature' as Memory['type'], label: 'signature phrases' },
+        { text: storyAnchors, type: 'story' as Memory['type'], label: 'signature stories' },
+        { text: emotionalPatterns, type: 'trait' as Memory['type'], label: 'emotional patterns' },
+        { text: valuesBeliefs, type: 'values' as Memory['type'], label: 'values and beliefs' },
+      ].filter(m => m.text.trim());
+
+      for (const mem of deepMemories) {
+        await supabase.from('persona_memories').insert({
+          persona_id: personaId,
+          content: mem.text,
+          memory_type: mem.type,
+          source_type: 'deep_profile',
+          importance: 0.98
+        });
+      }
+
+      if (validNicknames.length > 0) {
+        const nicknameText = validNicknames
+          .map(n => `${n.person} is called "${n.nickname}"`)
+          .join(', ');
+        await supabase.from('persona_memories').insert({
+          persona_id: personaId,
+          content: `Nicknames for family members: ${nicknameText}`,
+          memory_type: 'relationship',
+          source_type: 'deep_profile',
+          importance: 0.98
+        });
+      }
+
+      toast.success('Deep persona saved ✓');
+    } catch (error) {
+      console.error('Error saving deep persona:', error);
+      toast.error('Could not save. Please try again.');
+    } finally {
+      setSavingDeep(false);
+    }
+  };
 
   const toggleTrait = async (trait: string) => {
     const newTraits = selectedTraits.includes(trait)
@@ -249,18 +320,15 @@ export function PersonaTraining({
       recorder.onstop = async () => {
         const blob = new Blob(memoryChunksRef.current, { type: 'audio/mp4' });
         stream.getTracks().forEach(t => t.stop());
-
         try {
           const fd = new FormData();
           fd.append('file', blob, 'memory.mp4');
           fd.append('model', 'whisper-1');
-
           const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${import.meta.env.VITE_OPENAI_API_KEY}` },
             body: fd
           });
-
           if (response.ok) {
             const data = await response.json();
             setNewMemoryText(data.text);
@@ -291,12 +359,10 @@ export function PersonaTraining({
     if (!urlInput.trim()) return;
     setIsFetchingUrl(true);
     setFetchedUrlContent(null);
-
     try {
       const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(urlInput)}`;
       const response = await fetch(proxyUrl);
       if (!response.ok) throw new Error('Could not fetch URL');
-
       const data = await response.json();
       const div = document.createElement('div');
       div.innerHTML = data.contents;
@@ -323,7 +389,6 @@ export function PersonaTraining({
         const aiData = await openAiResponse.json();
         const summary = aiData.choices[0]?.message?.content || '';
         setFetchedUrlContent(summary);
-
         if (personaId && summary) {
           await supabase.from('persona_memories').insert({
             persona_id: personaId,
@@ -337,7 +402,7 @@ export function PersonaTraining({
       } else {
         throw new Error('AI analysis failed');
       }
-    } catch (error) {
+    } catch {
       toast.error('Could not fetch that URL. Try a different one.');
     } finally {
       setIsFetchingUrl(false);
@@ -365,10 +430,8 @@ export function PersonaTraining({
     setIsTraining(true);
     await updatePersonaStatus('training', 0);
     setTrainingSteps(prev => prev.map(step => ({ ...step, status: 'pending', progress: 0 })));
-
     try {
       const { data: content } = await supabase.from('persona_content').select('*').eq('persona_id', personaId);
-
       if (import.meta.env.VITE_OPENAI_API_KEY && content && content.length > 0) {
         const { trainPersonaFromContent } = await import('../lib/ai');
         for (let i = 0; i < trainingSteps.length; i++) {
@@ -379,9 +442,7 @@ export function PersonaTraining({
               const result = await trainPersonaFromContent(personaId, content);
               if (result.success) {
                 setTrainingSteps(prev => prev.map(s => ({ ...s, status: 'completed', progress: 100 })));
-              } else {
-                throw new Error('Training failed');
-              }
+              } else throw new Error('Training failed');
             } catch {
               setTrainingSteps(prev => prev.map(s => ({ ...s, status: 'completed', progress: 100 })));
             }
@@ -394,7 +455,7 @@ export function PersonaTraining({
           await simulateTrainingStep(step.id, Math.random() * 3000 + 2000);
         }
       }
-    } catch (error) {
+    } catch {
       setTrainingSteps(prev => prev.map(step => step.status === 'processing' ? { ...step, status: 'error', progress: 0 } : step));
       setIsTraining(false);
       await updatePersonaStatus('error', 0);
@@ -409,7 +470,6 @@ export function PersonaTraining({
 
     setIsCreating(true);
     try {
-      // ✅ Create persona first
       const { data, error } = await supabase
         .from('personas')
         .insert({
@@ -427,14 +487,10 @@ export function PersonaTraining({
 
       if (error) throw error;
 
-      // ✅ Upload photo if provided
       if (photoFile) {
         const avatarUrl = await uploadPhoto(data.id);
         if (avatarUrl) {
-          await supabase
-            .from('personas')
-            .update({ avatar_url: avatarUrl })
-            .eq('id', data.id);
+          await supabase.from('personas').update({ avatar_url: avatarUrl }).eq('id', data.id);
           toast.success('Photo uploaded ✓', { duration: 1500 });
         }
       }
@@ -508,54 +564,33 @@ export function PersonaTraining({
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">Gender *</label>
             <div className="grid grid-cols-2 gap-4">
-              <button
-                type="button"
-                onClick={() => setFormData({ ...formData, gender: 'male' })}
-                className={`px-6 py-4 border-2 rounded-xl font-semibold transition-all ${formData.gender === 'male' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-700 hover:border-gray-400'}`}
-              >
+              <button type="button" onClick={() => setFormData({ ...formData, gender: 'male' })}
+                className={`px-6 py-4 border-2 rounded-xl font-semibold transition-all ${formData.gender === 'male' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-700 hover:border-gray-400'}`}>
                 Male
               </button>
-              <button
-                type="button"
-                onClick={() => setFormData({ ...formData, gender: 'female' })}
-                className={`px-6 py-4 border-2 rounded-xl font-semibold transition-all ${formData.gender === 'female' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-700 hover:border-gray-400'}`}
-              >
+              <button type="button" onClick={() => setFormData({ ...formData, gender: 'female' })}
+                className={`px-6 py-4 border-2 rounded-xl font-semibold transition-all ${formData.gender === 'female' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-700 hover:border-gray-400'}`}>
                 Female
               </button>
             </div>
           </div>
 
-          {/* ✅ Photo upload */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Their Photo
-              <span className="text-gray-400 font-normal ml-2">(Optional but recommended)</span>
+              Their Photo <span className="text-gray-400 font-normal ml-2">(Optional but recommended)</span>
             </label>
-
             {photoPreview ? (
               <div className="flex items-center gap-4">
-                <img
-                  src={photoPreview}
-                  alt="Preview"
-                  className="w-20 h-20 rounded-2xl object-cover border-2 border-gray-200 shadow-sm"
-                />
+                <img src={photoPreview} alt="Preview" className="w-20 h-20 rounded-2xl object-cover border-2 border-gray-200 shadow-sm" />
                 <div>
                   <p className="text-sm font-semibold text-gray-700 mb-1">Photo selected ✓</p>
                   <p className="text-xs text-gray-400 mb-2">This will appear on their persona card</p>
-                  <button
-                    onClick={() => { setPhotoFile(null); setPhotoPreview(null); }}
-                    className="text-xs text-red-400 hover:text-red-600 transition-colors"
-                  >
-                    Remove photo
-                  </button>
+                  <button onClick={() => { setPhotoFile(null); setPhotoPreview(null); }} className="text-xs text-red-400 hover:text-red-600 transition-colors">Remove photo</button>
                 </div>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={() => photoInputRef.current?.click()}
-                className="w-full border-2 border-dashed border-gray-300 rounded-xl p-6 flex flex-col items-center gap-3 hover:border-blue-400 hover:bg-blue-50 transition-all"
-              >
+              <button type="button" onClick={() => photoInputRef.current?.click()}
+                className="w-full border-2 border-dashed border-gray-300 rounded-xl p-6 flex flex-col items-center gap-3 hover:border-blue-400 hover:bg-blue-50 transition-all">
                 <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center">
                   <Camera className="h-6 w-6 text-gray-400" />
                 </div>
@@ -565,42 +600,27 @@ export function PersonaTraining({
                 </div>
               </button>
             )}
-
-            <input
-              ref={photoInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handlePhotoSelect}
-              className="hidden"
-            />
+            <input ref={photoInputRef} type="file" accept="image/*" onChange={handlePhotoSelect} className="hidden" />
           </div>
 
-          {/* Date of Passing */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Date of Passing
-              <span className="text-gray-400 font-normal ml-2">(Optional)</span>
+              Date of Passing <span className="text-gray-400 font-normal ml-2">(Optional)</span>
             </label>
             <div className="relative">
               <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="date"
-                value={formData.dateOfPassing}
+              <input type="date" value={formData.dateOfPassing}
                 max={new Date().toISOString().split('T')[0]}
                 onChange={(e) => setFormData({ ...formData, dateOfPassing: e.target.value })}
                 className="w-full pl-9 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
               />
             </div>
-            <p className="text-xs text-gray-400 mt-1">
-              Helps the persona understand where you are in your healing journey
-            </p>
+            <p className="text-xs text-gray-400 mt-1">Helps the persona understand where you are in your healing journey</p>
           </div>
 
-          {/* Description */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">A few words about them (Optional)</label>
-            <textarea
-              value={formData.description}
+            <textarea value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               placeholder="Share a few words about their personality, hobbies, or what made them special..."
               rows={3}
@@ -609,11 +629,8 @@ export function PersonaTraining({
           </div>
 
           <div className="pt-4">
-            <button
-              onClick={createPersona}
-              disabled={isCreating}
-              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-4 rounded-xl text-lg font-semibold hover:shadow-xl transition-all duration-300 transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-            >
+            <button onClick={createPersona} disabled={isCreating}
+              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-4 rounded-xl text-lg font-semibold hover:shadow-xl transition-all duration-300 transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
               {isCreating ? (
                 <span className="flex items-center justify-center">
                   <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2" />
@@ -641,32 +658,22 @@ export function PersonaTraining({
               <p className="text-gray-600">Upload voicemails, videos, or record live</p>
             </div>
           </div>
-
           <div className="bg-blue-50 rounded-xl p-4 mb-6 border border-blue-100">
             <p className="text-sm text-blue-800">
               <strong>Tip:</strong> Even a single voicemail works. The more audio you provide, the better the voice clone.
             </p>
           </div>
-
           {personaId && (
-            <FileUpload
-              personaId={personaId}
-              onUploadComplete={() => toast.success('Uploaded!')}
-            />
+            <FileUpload personaId={personaId} onUploadComplete={() => toast.success('Uploaded!')} />
           )}
         </div>
-
         <div className="flex gap-3">
-          <button
-            onClick={() => setCurrentStep('memories')}
-            className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-4 rounded-xl font-semibold hover:shadow-lg transition-all flex items-center justify-center gap-2"
-          >
+          <button onClick={() => setCurrentStep('memories')}
+            className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-4 rounded-xl font-semibold hover:shadow-lg transition-all flex items-center justify-center gap-2">
             Continue <ChevronRight className="h-5 w-5" />
           </button>
-          <button
-            onClick={() => setCurrentStep('training')}
-            className="px-6 py-4 text-gray-500 hover:text-gray-700 rounded-xl border border-gray-200 hover:border-gray-300 transition-all text-sm"
-          >
+          <button onClick={() => setCurrentStep('training')}
+            className="px-6 py-4 text-gray-500 hover:text-gray-700 rounded-xl border border-gray-200 hover:border-gray-300 transition-all text-sm">
             Skip to Training
           </button>
         </div>
@@ -678,6 +685,8 @@ export function PersonaTraining({
   if (currentStep === 'memories') {
     return (
       <div className="space-y-6">
+
+        {/* Header */}
         <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
           <div className="w-16 h-16 bg-gradient-to-br from-pink-500 to-rose-500 rounded-full flex items-center justify-center mx-auto mb-4">
             <BookOpen className="h-8 w-8 text-white" />
@@ -700,15 +709,8 @@ export function PersonaTraining({
           <p className="text-sm text-gray-500 mb-4">Saves automatically when you tap</p>
           <div className="flex flex-wrap gap-2">
             {TRAIT_OPTIONS.map(trait => (
-              <button
-                key={trait}
-                onClick={() => toggleTrait(trait)}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                  selectedTraits.includes(trait)
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
+              <button key={trait} onClick={() => toggleTrait(trait)}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${selectedTraits.includes(trait) ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
                 {trait}
               </button>
             ))}
@@ -721,19 +723,176 @@ export function PersonaTraining({
           <p className="text-sm text-gray-500 mb-4">Saves automatically when you tap</p>
           <div className="flex flex-wrap gap-2">
             {SPEAKING_STYLES.map(style => (
-              <button
-                key={style}
-                onClick={() => toggleStyle(style)}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                  selectedStyles.includes(style)
-                    ? 'bg-purple-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
+              <button key={style} onClick={() => toggleStyle(style)}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${selectedStyles.includes(style) ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
                 {style}
               </button>
             ))}
           </div>
+        </div>
+
+        {/* ✅ DEEP PERSONA SECTION */}
+        <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-2xl border border-purple-100 p-8">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-blue-600 rounded-xl flex items-center justify-center">
+              <Sparkles className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900">Deep Persona</h3>
+              <p className="text-sm text-purple-600 font-medium">What makes them unmistakably them</p>
+            </div>
+          </div>
+          <p className="text-sm text-gray-500 mb-6">
+            This is where the AI goes from knowing facts about them to actually sounding like them.
+            The more you share here, the more real every conversation will feel.
+          </p>
+
+          {/* 1 — Signature Phrases */}
+          <div className="bg-white rounded-xl p-6 mb-4 border border-purple-100">
+            <div className="flex items-center gap-2 mb-1">
+              <Quote className="h-4 w-4 text-purple-600" />
+              <h4 className="font-bold text-gray-900">Their Words</h4>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              Catchphrases, pet names they used for everyone, words they overused, how they ended conversations.
+              e.g. "Called everyone 'bud.' Always said 'now listen here' before making a point. Signed off with 'love you to the moon.'"
+            </p>
+            <textarea
+              value={signaturePhrases}
+              onChange={(e) => setSignaturePhrases(e.target.value)}
+              placeholder="e.g., Called everyone 'chief.' Always said 'that's what I'm talking about' when excited. Never said goodbye — always said 'see you on the flip side.'"
+              rows={3}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-400 focus:border-transparent transition-all resize-none text-sm"
+            />
+          </div>
+
+          {/* 2 — Nicknames */}
+          <div className="bg-white rounded-xl p-6 mb-4 border border-purple-100">
+            <div className="flex items-center gap-2 mb-1">
+              <Users2 className="h-4 w-4 text-blue-600" />
+              <h4 className="font-bold text-gray-900">Nicknames</h4>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              What did they call each person in the family? The AI will use these automatically.
+            </p>
+            <div className="space-y-2">
+              {nicknameEntries.map((entry, i) => (
+                <div key={i} className="flex gap-2 items-center">
+                  <input
+                    type="text"
+                    value={entry.person}
+                    onChange={(e) => {
+                      const updated = [...nicknameEntries];
+                      updated[i] = { ...updated[i], person: e.target.value };
+                      setNicknameEntries(updated);
+                    }}
+                    placeholder="Person (e.g. daughter)"
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent"
+                  />
+                  <span className="text-gray-400 text-sm">→</span>
+                  <input
+                    type="text"
+                    value={entry.nickname}
+                    onChange={(e) => {
+                      const updated = [...nicknameEntries];
+                      updated[i] = { ...updated[i], nickname: e.target.value };
+                      setNicknameEntries(updated);
+                    }}
+                    placeholder="Nickname (e.g. Monkey)"
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent"
+                  />
+                  {nicknameEntries.length > 1 && (
+                    <button onClick={() => setNicknameEntries(prev => prev.filter((_, idx) => idx !== i))}
+                      className="text-gray-300 hover:text-red-400 transition-colors">
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                onClick={() => setNicknameEntries(prev => [...prev, { person: '', nickname: '' }])}
+                className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1 mt-1"
+              >
+                <Plus className="h-3 w-3" /> Add another nickname
+              </button>
+            </div>
+          </div>
+
+          {/* 3 — Story Anchors */}
+          <div className="bg-white rounded-xl p-6 mb-4 border border-purple-100">
+            <div className="flex items-center gap-2 mb-1">
+              <Repeat className="h-4 w-4 text-green-600" />
+              <h4 className="font-bold text-gray-900">The Stories They Always Told</h4>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              Every person has 3-4 stories they told on repeat. The fishing trip. The "when I was your age" story.
+              The one about how they met. Share them here — the AI will reference them naturally.
+            </p>
+            <textarea
+              value={storyAnchors}
+              onChange={(e) => setStoryAnchors(e.target.value)}
+              placeholder="e.g., Always told the story about driving cross-country with $20 in his pocket. Repeated the story of meeting Mom at a gas station in 1974. Always brought up the time he caught a 40-pound bass..."
+              rows={4}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-400 focus:border-transparent transition-all resize-none text-sm"
+            />
+          </div>
+
+          {/* 4 — Emotional Patterns */}
+          <div className="bg-white rounded-xl p-6 mb-4 border border-purple-100">
+            <div className="flex items-center gap-2 mb-1">
+              <Heart className="h-4 w-4 text-pink-600" />
+              <h4 className="font-bold text-gray-900">How They Showed Up Emotionally</h4>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              Did they celebrate loudly or quietly? Get silent when worried? Use humor to deflect hard moments?
+              Express love freely or show it through actions? This shapes how the AI responds emotionally.
+            </p>
+            <textarea
+              value={emotionalPatterns}
+              onChange={(e) => setEmotionalPatterns(e.target.value)}
+              placeholder="e.g., Got very quiet when worried — you knew something was wrong when he stopped talking. Cried at every graduation and wedding, no exceptions. Used humor when things got hard — a joke meant he was scared. Never said 'I love you' out loud but would do anything for the people he loved..."
+              rows={4}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-pink-400 focus:border-transparent transition-all resize-none text-sm"
+            />
+          </div>
+
+          {/* 5 — Values & Beliefs */}
+          <div className="bg-white rounded-xl p-6 mb-4 border border-purple-100">
+            <div className="flex items-center gap-2 mb-1">
+              <Lightbulb className="h-4 w-4 text-amber-600" />
+              <h4 className="font-bold text-gray-900">What They Believed In</h4>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              Core values, faith, life philosophy — the lens through which they saw everything.
+              When the AI gives advice, it will give it through this lens.
+            </p>
+            <textarea
+              value={valuesBeliefs}
+              onChange={(e) => setValuesBeliefs(e.target.value)}
+              placeholder="e.g., Believed hard work solved everything. Deep Catholic faith — went to Mass every Sunday. Always said 'family first, everything else second.' Never trusted anyone who complained without trying to fix it. Believed in giving people second chances but never thirds..."
+              rows={4}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-400 focus:border-transparent transition-all resize-none text-sm"
+            />
+          </div>
+
+          {/* Save Deep Persona button */}
+          <button
+            onClick={saveDeepPersona}
+            disabled={savingDeep}
+            className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+          >
+            {savingDeep ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4" />
+                Save Deep Persona
+              </>
+            )}
+          </button>
         </div>
 
         {/* Memory Journal */}
@@ -742,21 +901,14 @@ export function PersonaTraining({
           <p className="text-sm text-gray-500 mb-4">
             Stories, favorite sayings, career details, people they loved — saves when you click Add
           </p>
-
           <div className="flex gap-2 mb-4 flex-wrap">
             {(['story', 'phrase', 'career', 'interest', 'relationship'] as Memory['type'][]).map(type => (
-              <button
-                key={type}
-                onClick={() => setNewMemoryType(type)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${
-                  newMemoryType === type ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
+              <button key={type} onClick={() => setNewMemoryType(type)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${newMemoryType === type ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                 {type}
               </button>
             ))}
           </div>
-
           <textarea
             value={newMemoryText}
             onChange={(e) => setNewMemoryText(e.target.value)}
@@ -770,27 +922,19 @@ export function PersonaTraining({
             rows={3}
             className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all resize-none text-sm mb-3"
           />
-
           <div className="flex gap-2 mb-6">
-            <button
-              onClick={addMemory}
-              disabled={!newMemoryText.trim()}
-              className="flex-1 bg-gray-900 text-white px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40 hover:bg-gray-800 transition-all flex items-center justify-center gap-2"
-            >
+            <button onClick={addMemory} disabled={!newMemoryText.trim()}
+              className="flex-1 bg-gray-900 text-white px-4 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40 hover:bg-gray-800 transition-all flex items-center justify-center gap-2">
               <Plus className="h-4 w-4" />
               Add & Save Memory
             </button>
             <button
               onClick={isRecordingMemory ? stopMemoryRecording : startMemoryRecording}
-              className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 ${
-                isRecordingMemory ? 'bg-red-500 text-white animate-pulse' : 'bg-pink-100 text-pink-700 hover:bg-pink-200'
-              }`}
-            >
+              className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-2 ${isRecordingMemory ? 'bg-red-500 text-white animate-pulse' : 'bg-pink-100 text-pink-700 hover:bg-pink-200'}`}>
               {isRecordingMemory ? <StopCircle className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
               {isRecordingMemory ? 'Stop' : 'Record'}
             </button>
           </div>
-
           {memories.length > 0 && (
             <div className="space-y-2">
               {memories.map(memory => (
@@ -809,33 +953,21 @@ export function PersonaTraining({
         {/* URL Fetch */}
         <div className="bg-white rounded-2xl shadow-sm p-8">
           <h3 className="text-lg font-bold text-gray-900 mb-1">Find them online</h3>
-          <p className="text-sm text-gray-500 mb-1">
-            Paste a link to their LinkedIn, blog, website, or any page about them.
-          </p>
-          <p className="text-xs text-blue-600 mb-4">
-            💡 Tip: Right-click the link and open in a new tab, then copy the URL and paste it here — you won't lose your progress.
-          </p>
-
+          <p className="text-sm text-gray-500 mb-1">Paste a link to their LinkedIn, blog, website, or any page about them.</p>
+          <p className="text-xs text-blue-600 mb-4">💡 Tip: Right-click the link and open in a new tab, then copy the URL and paste it here — you won't lose your progress.</p>
           <div className="flex gap-2 mb-3">
             <div className="flex-1 relative">
               <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="url"
-                value={urlInput}
-                onChange={(e) => setUrlInput(e.target.value)}
+              <input type="url" value={urlInput} onChange={(e) => setUrlInput(e.target.value)}
                 placeholder="https://linkedin.com/in/..."
                 className="w-full pl-9 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-sm"
               />
             </div>
-            <button
-              onClick={fetchUrl}
-              disabled={!urlInput.trim() || isFetchingUrl}
-              className="px-5 py-3 bg-blue-600 text-white rounded-xl font-semibold text-sm disabled:opacity-40 hover:bg-blue-700 transition-all"
-            >
+            <button onClick={fetchUrl} disabled={!urlInput.trim() || isFetchingUrl}
+              className="px-5 py-3 bg-blue-600 text-white rounded-xl font-semibold text-sm disabled:opacity-40 hover:bg-blue-700 transition-all">
               {isFetchingUrl ? <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" /> : 'Fetch & Save'}
             </button>
           </div>
-
           {fetchedUrlContent && (
             <div className="bg-green-50 border border-green-200 rounded-xl p-4">
               <div className="flex items-center gap-2 mb-2">
@@ -849,16 +981,12 @@ export function PersonaTraining({
 
         {/* Continue */}
         <div className="flex gap-3">
-          <button
-            onClick={() => setCurrentStep('training')}
-            className="flex-1 bg-gradient-to-r from-pink-600 to-purple-600 text-white px-8 py-4 rounded-xl font-semibold hover:shadow-lg transition-all flex items-center justify-center gap-2"
-          >
+          <button onClick={() => setCurrentStep('training')}
+            className="flex-1 bg-gradient-to-r from-pink-600 to-purple-600 text-white px-8 py-4 rounded-xl font-semibold hover:shadow-lg transition-all flex items-center justify-center gap-2">
             Continue to Training <ChevronRight className="h-5 w-5" />
           </button>
-          <button
-            onClick={() => onComplete?.()}
-            className="px-6 py-4 text-gray-500 hover:text-gray-700 rounded-xl border border-gray-200 hover:border-gray-300 transition-all text-sm"
-          >
+          <button onClick={() => onComplete?.()}
+            className="px-6 py-4 text-gray-500 hover:text-gray-700 rounded-xl border border-gray-200 hover:border-gray-300 transition-all text-sm">
             Done
           </button>
         </div>
@@ -886,10 +1014,8 @@ export function PersonaTraining({
             <span className="text-sm font-medium text-gray-700">{Math.floor(overallProgress)}%</span>
           </div>
           <div className="w-full bg-gray-200 rounded-full h-3">
-            <div
-              className="bg-gradient-to-r from-purple-600 to-blue-600 h-3 rounded-full transition-all duration-500"
-              style={{ width: `${overallProgress}%` }}
-            />
+            <div className="bg-gradient-to-r from-purple-600 to-blue-600 h-3 rounded-full transition-all duration-500"
+              style={{ width: `${overallProgress}%` }} />
           </div>
         </div>
 
@@ -915,10 +1041,8 @@ export function PersonaTraining({
 
         <div className="text-center">
           {!isTraining && overallProgress === 0 && (
-            <button
-              onClick={startTraining}
-              className="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-8 py-3 rounded-full font-semibold hover:shadow-lg transition-all flex items-center mx-auto"
-            >
+            <button onClick={startTraining}
+              className="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-8 py-3 rounded-full font-semibold hover:shadow-lg transition-all flex items-center mx-auto">
               <Zap className="h-5 w-5 mr-2" />
               Start Training
             </button>
@@ -935,10 +1059,8 @@ export function PersonaTraining({
                 <CheckCircle className="h-5 w-5 mr-2" />
                 <span className="font-medium">Ready to talk!</span>
               </div>
-              <button
-                onClick={() => onComplete?.()}
-                className="mx-auto bg-gradient-to-r from-green-600 to-blue-600 text-white px-8 py-3 rounded-full font-semibold hover:shadow-lg transition-all flex items-center"
-              >
+              <button onClick={() => onComplete?.()}
+                className="mx-auto bg-gradient-to-r from-green-600 to-blue-600 text-white px-8 py-3 rounded-full font-semibold hover:shadow-lg transition-all flex items-center">
                 <MessageCircle className="h-5 w-5 mr-2" />
                 Start Conversation
               </button>
