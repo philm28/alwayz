@@ -22,6 +22,11 @@ export interface Profile {
   subscription_tier: string
   created_at: string
   updated_at: string
+  city?: string | null
+  region?: string | null
+  country?: string | null
+  latitude?: number | null
+  longitude?: number | null
 }
 
 export interface Persona {
@@ -38,6 +43,17 @@ export interface Persona {
   training_progress: number
   created_at: string
   updated_at: string
+  date_of_passing?: string | null
+  gender?: 'male' | 'female' | null
+  grief_phase?: string | null
+  is_self_recorded?: boolean | null
+  self_recorded_by?: string | null
+  // ✅ Deep persona fields
+  signature_phrases?: string | null
+  nickname_map?: { person: string; nickname: string }[] | null
+  story_anchors?: string | null
+  emotional_patterns?: string | null
+  values_beliefs?: string | null
 }
 
 export interface PersonaContent {
