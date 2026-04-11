@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Volume2, VolumeX, Phone, Heart, ArrowLeft } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX, Phone, Heart } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { memoryConversationEngine } from '../lib/memoryConversation';
@@ -21,6 +21,9 @@ interface Message {
   content: string;
 }
 
+// ✅ Voice cloning state — distinct from general loading
+type VoiceStatus = 'loading' | 'cloning' | 'cloned' | 'fallback';
+
 export function FaceTimeInterface({
   personaId,
   personaName,
@@ -38,8 +41,9 @@ export function FaceTimeInterface({
   const [personaData, setPersonaData] = useState<any>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(personaAvatar);
   const [audioWaveform, setAudioWaveform] = useState<number[]>([0, 0, 0, 0, 0]);
-  const [voiceStatus, setVoiceStatus] = useState<'loading' | 'cloned' | 'fallback'>('loading');
+  const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>('loading');
   const [callEnded, setCallEnded] = useState(false);
+  const [cloningAttempt, setCloningAttempt] = useState(0); // ✅ track polling attempts
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -79,31 +83,11 @@ export function FaceTimeInterface({
 
   const hardStop = () => {
     try {
-      if (silenceTimerRef.current) {
-        clearTimeout(silenceTimerRef.current);
-        silenceTimerRef.current = null;
-      }
+      if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
     } catch {}
-
-    try {
-      if (recognitionRef.current) {
-        recognitionRef.current.abort();
-        recognitionRef.current = null;
-      }
-    } catch {}
-
-    try {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = '';
-      }
-    } catch {}
-
-    try {
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.cancel();
-    } catch {}
-
+    try { if (recognitionRef.current) { recognitionRef.current.abort(); recognitionRef.current = null; } } catch {}
+    try { if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ''; } } catch {}
+    try { window.speechSynthesis.cancel(); window.speechSynthesis.cancel(); } catch {}
     accumulatedTranscriptRef.current = '';
     setIsListening(false);
     setIsPersonaSpeaking(false);
@@ -125,14 +109,31 @@ export function FaceTimeInterface({
 
         if (data) {
           persona = data;
+
+          // ✅ After first load, detect if voice is still cloning
+          if (attempts === 0) {
+            if (!data.voice_model_id || data.voice_model_id.startsWith('voice_')) {
+              // No voice yet — check if there's uploaded content (meaning cloning is in progress)
+              const { data: content } = await supabase
+                .from('persona_content')
+                .select('id')
+                .eq('persona_id', personaId)
+                .limit(1);
+
+              if (content && content.length > 0) {
+                setVoiceStatus('cloning'); // ✅ has content, voice just not ready yet
+              }
+            }
+          }
+
           if (data.voice_model_id && !data.voice_model_id.startsWith('voice_')) {
-            console.log(`✅ Got real voice ID on attempt ${attempts + 1}:`, data.voice_model_id);
             setVoiceStatus('cloned');
             break;
           }
         }
 
         attempts++;
+        setCloningAttempt(attempts); // ✅ update attempt counter for UI
         if (attempts < maxAttempts) {
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
@@ -202,19 +203,11 @@ export function FaceTimeInterface({
     try {
       const response = await fetch(`${ELEVENLABS_API_URL}/text-to-speech/${voiceId}`, {
         method: 'POST',
-        headers: {
-          'xi-api-key': ELEVENLABS_API_KEY!,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'xi-api-key': ELEVENLABS_API_KEY!, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text,
           model_id: 'eleven_multilingual_v2',
-          voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.85,
-            style: 0.2,
-            use_speaker_boost: true
-          }
+          voice_settings: { stability: 0.5, similarity_boost: 0.85, style: 0.2, use_speaker_boost: true }
         })
       });
 
@@ -225,20 +218,10 @@ export function FaceTimeInterface({
 
       return new Promise((resolve) => {
         if (!audioRef.current) { resolve(false); return; }
-
         audioRef.current.src = audioUrl;
         audioRef.current.volume = isSpeakerOn ? 1.0 : 0.0;
-
-        audioRef.current.onended = () => {
-          URL.revokeObjectURL(audioUrl);
-          resolve(true);
-        };
-
-        audioRef.current.onerror = () => {
-          URL.revokeObjectURL(audioUrl);
-          resolve(false);
-        };
-
+        audioRef.current.onended = () => { URL.revokeObjectURL(audioUrl); resolve(true); };
+        audioRef.current.onerror = () => { URL.revokeObjectURL(audioUrl); resolve(false); };
         audioRef.current.play().catch(() => resolve(false));
       });
     } catch {
@@ -248,22 +231,18 @@ export function FaceTimeInterface({
 
   const speakAndDisplay = async (text: string) => {
     window.speechSynthesis.cancel();
-
     setIsPersonaSpeaking(true);
     setPersonaMessage(text);
     isProcessingRef.current = true;
-
     stopListening();
 
     try {
       if (isSpeakerOn) {
         const voiceId = getVoiceId();
         let spoke = false;
-
         if (ELEVENLABS_API_KEY && voiceId) {
           spoke = await speakWithElevenLabs(text, voiceId);
         }
-
         if (!spoke) {
           window.speechSynthesis.cancel();
           await new Promise<void>((resolve) => {
@@ -291,37 +270,25 @@ export function FaceTimeInterface({
 
   const playGreeting = async (persona: any) => {
     try {
-      const greeting = await memoryConversationEngine.generateMemoryEnhancedResponse(
-        personaId,
-        '__greeting__',
-        []
-      );
+      const greeting = await memoryConversationEngine.generateMemoryEnhancedResponse(personaId, '__greeting__', []);
       await speakAndDisplay(greeting);
     } catch {
-      await speakAndDisplay(
-        `Oh, it's so good to hear from you. I've been thinking about you.`
-      );
+      await speakAndDisplay(`Oh, it's so good to hear from you. I've been thinking about you.`);
     }
   };
 
   const submitAccumulatedTranscript = () => {
     const transcript = accumulatedTranscriptRef.current.trim();
     if (!transcript || isProcessingRef.current) return;
-
     accumulatedTranscriptRef.current = '';
     setCurrentTranscript('');
-
-    if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch {}
-    }
-
+    if (recognitionRef.current) { try { recognitionRef.current.stop(); } catch {} }
     handleUserSpeech(transcript);
   };
 
   const handleUserSpeech = async (transcript: string) => {
     if (isProcessingRef.current || !transcript.trim()) return;
     isProcessingRef.current = true;
-
     setCurrentTranscript('');
     stopListening();
 
@@ -334,23 +301,12 @@ export function FaceTimeInterface({
       });
     }
 
-    const updatedHistory: Message[] = [
-      ...conversationHistory,
-      { role: 'user', content: transcript }
-    ];
+    const updatedHistory: Message[] = [...conversationHistory, { role: 'user', content: transcript }];
     setConversationHistory(updatedHistory);
 
     try {
-      const response = await memoryConversationEngine.generateMemoryEnhancedResponse(
-        personaId,
-        transcript,
-        updatedHistory
-      );
-
-      const newHistory: Message[] = [
-        ...updatedHistory,
-        { role: 'assistant', content: response }
-      ];
+      const response = await memoryConversationEngine.generateMemoryEnhancedResponse(personaId, transcript, updatedHistory);
+      const newHistory: Message[] = [...updatedHistory, { role: 'assistant', content: response }];
       setConversationHistory(newHistory);
 
       if (conversationIdRef.current) {
@@ -363,7 +319,6 @@ export function FaceTimeInterface({
       }
 
       await speakAndDisplay(response);
-
     } catch (error) {
       console.error('Response error:', error);
       isProcessingRef.current = false;
@@ -373,18 +328,10 @@ export function FaceTimeInterface({
 
   const startListening = () => {
     if (isProcessingRef.current) return;
-
-    const SpeechRecognition =
-      (window as any).webkitSpeechRecognition ||
-      (window as any).SpeechRecognition;
-
-    if (!SpeechRecognition) {
-      toast.error('Speech recognition not supported. Use Chrome or Edge.');
-      return;
-    }
+    const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+    if (!SpeechRecognition) { toast.error('Speech recognition not supported. Use Chrome or Edge.'); return; }
 
     accumulatedTranscriptRef.current = '';
-
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = true;
@@ -394,90 +341,51 @@ export function FaceTimeInterface({
     recognition.onstart = () => setIsListening(true);
 
     recognition.onresult = (event: any) => {
-      if (silenceTimerRef.current) {
-        clearTimeout(silenceTimerRef.current);
-        silenceTimerRef.current = null;
-      }
-
+      if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
       let interimTranscript = '';
       let finalTranscript = '';
-
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const t = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalTranscript += t;
-        } else {
-          interimTranscript += t;
-        }
+        if (event.results[i].isFinal) finalTranscript += t;
+        else interimTranscript += t;
       }
-
       if (finalTranscript) {
         accumulatedTranscriptRef.current += (accumulatedTranscriptRef.current ? ' ' : '') + finalTranscript;
       }
-
-      const displayText = accumulatedTranscriptRef.current +
-        (interimTranscript ? ' ' + interimTranscript : '');
-      setCurrentTranscript(displayText);
-
+      setCurrentTranscript(accumulatedTranscriptRef.current + (interimTranscript ? ' ' + interimTranscript : ''));
       silenceTimerRef.current = setTimeout(() => {
-        if (accumulatedTranscriptRef.current.trim()) {
-          submitAccumulatedTranscript();
-        }
+        if (accumulatedTranscriptRef.current.trim()) submitAccumulatedTranscript();
       }, 2000);
     };
 
     recognition.onerror = (event: any) => {
-      if (event.error === 'no-speech') {
-        if (!isProcessingRef.current) {
-          setTimeout(() => startListening(), 300);
-        }
-        return;
-      }
-      if (event.error !== 'aborted') {
-        console.error('Speech error:', event.error);
-      }
+      if (event.error === 'no-speech') { if (!isProcessingRef.current) setTimeout(() => startListening(), 300); return; }
+      if (event.error !== 'aborted') console.error('Speech error:', event.error);
       setIsListening(false);
     };
 
     recognition.onend = () => {
       setIsListening(false);
-
       if (accumulatedTranscriptRef.current.trim() && !silenceTimerRef.current && !isProcessingRef.current) {
         submitAccumulatedTranscript();
         return;
       }
-
-      if (!isProcessingRef.current) {
-        setTimeout(() => startListening(), 300);
-      }
+      if (!isProcessingRef.current) setTimeout(() => startListening(), 300);
     };
 
     recognitionRef.current = recognition;
-
-    try {
-      recognition.start();
-    } catch (error) {
-      console.error('Failed to start recognition:', error);
-    }
+    try { recognition.start(); } catch (error) { console.error('Failed to start recognition:', error); }
   };
 
   const stopListening = () => {
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-
-    if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch {}
-    }
-
+    if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
+    if (recognitionRef.current) { try { recognitionRef.current.stop(); } catch {} }
     accumulatedTranscriptRef.current = '';
     setIsListening(false);
   };
 
   const toggleMic = async () => {
     if (isPersonaSpeaking) return;
-
     if (isListening) {
       stopListening();
     } else {
@@ -490,32 +398,17 @@ export function FaceTimeInterface({
     }
   };
 
-  // ✅ End call — clean up and navigate back
   const handleEndCall = () => {
     if (callEnded) return;
     setCallEnded(true);
-
     hardStop();
-
     if (conversationIdRef.current) {
-      supabase
-        .from('conversations')
-        .update({
-          ended_at: new Date().toISOString(),
-          duration_seconds: callDuration
-        })
-        .eq('id', conversationIdRef.current)
-        .then(() => {});
+      supabase.from('conversations').update({
+        ended_at: new Date().toISOString(),
+        duration_seconds: callDuration
+      }).eq('id', conversationIdRef.current).then(() => {});
     }
-
-    // ✅ Navigate back to dashboard after brief delay
-    setTimeout(() => {
-      if (onBackToDashboard) {
-        onBackToDashboard();
-      } else {
-        onEndCall();
-      }
-    }, 300);
+    setTimeout(() => { if (onBackToDashboard) onBackToDashboard(); else onEndCall(); }, 300);
   };
 
   const formatDuration = (seconds: number) => {
@@ -524,23 +417,80 @@ export function FaceTimeInterface({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // ✅ Loading overlay content based on voice status
+  const renderLoadingOverlay = () => {
+    if (voiceStatus === 'cloning') {
+      return (
+        <div className="absolute inset-0 z-30 flex items-center justify-center">
+          <div className="bg-black/70 backdrop-blur-md rounded-2xl px-8 py-7 text-center max-w-xs mx-4">
+            <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Heart className="h-7 w-7 text-white animate-pulse" fill="currentColor" />
+            </div>
+            <p className="text-white font-semibold text-base mb-1">
+              Creating {personaName}'s voice
+            </p>
+            <p className="text-white/60 text-sm leading-relaxed mb-4">
+              Voice cloning is still in progress. This usually takes 1–2 minutes after uploading audio.
+            </p>
+            {/* ✅ Progress dots */}
+            <div className="flex items-center justify-center gap-2 mb-4">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <div
+                  key={i}
+                  className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                    i < cloningAttempt ? 'bg-purple-400' : 'bg-white/20'
+                  }`}
+                />
+              ))}
+            </div>
+            <p className="text-white/40 text-xs">
+              You can wait or start with a standard voice
+            </p>
+            <button
+              onClick={() => {
+                setVoiceStatus('fallback');
+              }}
+              className="mt-4 px-5 py-2 bg-white/10 hover:bg-white/20 text-white text-sm rounded-xl transition-all"
+            >
+              Continue with standard voice
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (voiceStatus === 'loading') {
+      return (
+        <div className="absolute inset-0 z-30 flex items-center justify-center">
+          <div className="bg-black/60 backdrop-blur-md rounded-2xl px-8 py-6 text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-3" />
+            <p className="text-white text-sm">Connecting to {personaName}...</p>
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  };
+
   return (
     <div className="h-screen bg-black flex flex-col relative overflow-hidden">
 
-      {/* ✅ Header — name and status only, no blocking controls */}
+      {/* Header */}
       <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/80 to-transparent px-6 pt-8 pb-12">
         <div className="flex items-center justify-between text-white">
           <div>
             <h2 className="text-2xl font-semibold">{personaName}</h2>
             <div className="flex items-center gap-2 mt-1">
               <div className={`w-2 h-2 rounded-full ${
-                voiceStatus === 'loading' ? 'bg-yellow-400 animate-pulse' :
+                voiceStatus === 'loading' || voiceStatus === 'cloning' ? 'bg-yellow-400 animate-pulse' :
                 isPersonaSpeaking ? 'bg-blue-400 animate-pulse' :
                 isListening ? 'bg-green-400 animate-pulse' :
                 'bg-white/40'
               }`} />
               <span className="text-sm text-white/70">
                 {voiceStatus === 'loading' ? 'Connecting...' :
+                 voiceStatus === 'cloning' ? 'Creating voice...' :
                  isPersonaSpeaking ? 'Speaking...' :
                  isListening ? 'Listening...' :
                  formatDuration(callDuration)}
@@ -549,65 +499,45 @@ export function FaceTimeInterface({
           </div>
           <div className="text-xs text-white/30">
             {voiceStatus === 'cloned' ? '🎤 Cloned voice' :
-             voiceStatus === 'fallback' ? '⚠️ Standard voice' : ''}
+             voiceStatus === 'fallback' ? '⚠️ Standard voice' :
+             voiceStatus === 'cloning' ? '⏳ Cloning voice...' : ''}
           </div>
         </div>
       </div>
 
-      {/* ✅ Full screen photo — unobstructed */}
+      {/* Full screen photo */}
       <div className="absolute inset-0">
         {avatarUrl ? (
-          <img
-            src={avatarUrl}
-            alt={personaName}
-            className="w-full h-full object-cover"
-          />
+          <img src={avatarUrl} alt={personaName} className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center">
             <div className="text-center">
               <div className="w-40 h-40 bg-gradient-to-br from-blue-500/40 to-purple-600/40 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-white/20">
-                <span className="text-7xl font-light text-white/80">
-                  {personaName[0]}
-                </span>
+                <span className="text-7xl font-light text-white/80">{personaName[0]}</span>
               </div>
               <p className="text-white/40 text-sm">No photo uploaded yet</p>
             </div>
           </div>
         )}
-
-        {/* Gradient overlay — heavier at bottom for controls */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/5 to-black/40" />
       </div>
 
-      {/* Loading overlay */}
-      {voiceStatus === 'loading' && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center">
-          <div className="bg-black/60 backdrop-blur-md rounded-2xl px-8 py-6 text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-3" />
-            <p className="text-white text-sm">Connecting to {personaName}...</p>
-          </div>
-        </div>
-      )}
+      {/* ✅ Smart loading overlay */}
+      {(voiceStatus === 'loading' || voiceStatus === 'cloning') && renderLoadingOverlay()}
 
-      {/* ✅ Speech bubbles — moved higher to avoid overlapping controls */}
+      {/* Speech bubbles */}
       <div className="absolute bottom-48 left-4 right-4 z-20 space-y-3">
-        {/* Persona speaking */}
         {isPersonaSpeaking && personaMessage && (
           <div className="bg-black/70 backdrop-blur-md rounded-3xl px-5 py-4 max-w-lg mx-auto">
             <p className="text-white text-sm leading-relaxed">{personaMessage}</p>
             <div className="flex items-center gap-1 mt-2">
               {audioWaveform.map((height, i) => (
-                <div
-                  key={i}
-                  className="w-1 bg-blue-400 rounded-full transition-all duration-75"
-                  style={{ height: `${Math.max(3, height * 0.2)}px` }}
-                />
+                <div key={i} className="w-1 bg-blue-400 rounded-full transition-all duration-75"
+                  style={{ height: `${Math.max(3, height * 0.2)}px` }} />
               ))}
             </div>
           </div>
         )}
-
-        {/* User transcript */}
         {currentTranscript && !isPersonaSpeaking && (
           <div className="flex justify-end">
             <div className="bg-purple-600/80 backdrop-blur-md rounded-3xl px-5 py-3 max-w-xs">
@@ -621,25 +551,18 @@ export function FaceTimeInterface({
         )}
       </div>
 
-      {/* ✅ Controls — pinned to very bottom, clear of photo */}
+      {/* Controls */}
       <div className="absolute bottom-0 left-0 right-0 z-20 pb-10 pt-6 bg-gradient-to-t from-black via-black/80 to-transparent">
-
         <div className="flex items-center justify-center gap-8 px-8 mb-4">
-
-          {/* Speaker toggle */}
           <button
             onClick={() => setIsSpeakerOn(!isSpeakerOn)}
             className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 shadow-xl ${
               isSpeakerOn ? 'bg-white/20 backdrop-blur' : 'bg-red-500/80'
             }`}
           >
-            {isSpeakerOn
-              ? <Volume2 className="h-6 w-6 text-white" />
-              : <VolumeX className="h-6 w-6 text-white" />
-            }
+            {isSpeakerOn ? <Volume2 className="h-6 w-6 text-white" /> : <VolumeX className="h-6 w-6 text-white" />}
           </button>
 
-          {/* ✅ End call — center, prominent */}
           <button
             onClick={handleEndCall}
             disabled={callEnded}
@@ -648,25 +571,20 @@ export function FaceTimeInterface({
             <Phone className="h-8 w-8 text-white rotate-[135deg]" />
           </button>
 
-          {/* Mic toggle */}
           <button
             onClick={toggleMic}
-            disabled={isPersonaSpeaking || voiceStatus === 'loading'}
+            disabled={isPersonaSpeaking || voiceStatus === 'loading' || voiceStatus === 'cloning'}
             className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 shadow-xl ${
-              isListening
-                ? 'bg-white ring-4 ring-green-400/60'
-                : 'bg-white/20 backdrop-blur'
+              isListening ? 'bg-white ring-4 ring-green-400/60' : 'bg-white/20 backdrop-blur'
             } disabled:opacity-40`}
           >
-            {isListening
-              ? <Mic className="h-6 w-6 text-black" />
-              : <MicOff className="h-6 w-6 text-white" />
-            }
+            {isListening ? <Mic className="h-6 w-6 text-black" /> : <MicOff className="h-6 w-6 text-white" />}
           </button>
         </div>
 
         <p className="text-center text-white/40 text-xs">
           {voiceStatus === 'loading' ? 'Connecting...' :
+           voiceStatus === 'cloning' ? 'Creating voice — tap below to continue with standard voice' :
            isPersonaSpeaking ? `${personaName} is speaking...` :
            isListening ? 'Listening — take your time' :
            'Tap mic to speak'}
