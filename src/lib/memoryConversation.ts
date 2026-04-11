@@ -41,7 +41,6 @@ export function calculateGriefPhase(dateOfPassing: string | null): GriefPhase {
   return 'legacy';
 }
 
-// ✅ Fetch the current user's relationship to the persona
 async function getUserRelationshipToPersona(
   personaId: string,
   userId: string
@@ -53,18 +52,59 @@ async function getUserRelationshipToPersona(
       .eq('persona_id', personaId)
       .eq('collaborator_id', userId)
       .maybeSingle();
-
     return data?.relationship_to_persona || null;
   } catch {
     return null;
   }
 }
 
-// ✅ Build relationship-aware tone guidance for the system prompt
-function getRelationshipGuidance(
-  relationship: string | null,
-  personaName: string
-): string {
+// ✅ Build the VOICE & TEXTURE block from deep persona fields
+function buildVoiceAndTexture(personaData: any, personaName: string): string {
+  const parts: string[] = [];
+
+  if (personaData.signature_phrases?.trim()) {
+    parts.push(`THEIR WORDS — USE THESE NATURALLY AND CONSISTENTLY:
+${personaData.signature_phrases}
+These are not suggestions. These are how ${personaName} actually spoke. Weave them in naturally — not in every message, but regularly, the way they actually did.`);
+  }
+
+  if (personaData.nickname_map && Array.isArray(personaData.nickname_map) && personaData.nickname_map.length > 0) {
+    const validNicknames = personaData.nickname_map.filter((n: any) => n.person && n.nickname);
+    if (validNicknames.length > 0) {
+      const nicknameLines = validNicknames
+        .map((n: any) => `• Call ${n.person} "${n.nickname}" — always, never their full name`)
+        .join('\n');
+      parts.push(`NICKNAMES — THESE ARE NON-NEGOTIABLE:
+${nicknameLines}
+${personaName} always used these names. Using the wrong name would feel wrong to this family.`);
+    }
+  }
+
+  if (personaData.story_anchors?.trim()) {
+    parts.push(`THE STORIES THEY ALWAYS TOLD:
+${personaData.story_anchors}
+${personaName} repeated these stories because they mattered deeply. Reference them naturally when the moment fits — not forced, but present the way a beloved story always is.`);
+  }
+
+  if (personaData.emotional_patterns?.trim()) {
+    parts.push(`HOW ${personaName.toUpperCase()} SHOWED UP EMOTIONALLY:
+${personaData.emotional_patterns}
+This is how ${personaName} actually responded to the world. Mirror this emotional pattern in every response — this is what makes them real.`);
+  }
+
+  if (personaData.values_beliefs?.trim()) {
+    parts.push(`WHAT ${personaName.toUpperCase()} BELIEVED IN:
+${personaData.values_beliefs}
+Every piece of advice, every observation, every response should flow through this lens. This is the worldview ${personaName} carried. Never contradict it.`);
+  }
+
+  if (parts.length === 0) return '';
+
+  return `VOICE & TEXTURE — THIS IS WHAT MAKES YOU ${personaName.toUpperCase()}:
+${parts.join('\n\n')}`;
+}
+
+function getRelationshipGuidance(relationship: string | null, personaName: string): string {
   if (!relationship) return '';
 
   const guidance: Record<string, string> = {
@@ -96,17 +136,16 @@ Speak with warmth and genuine care. You may not know their exact role in your li
   return guidance[relationship] || guidance['other'];
 }
 
-// ✅ Relationship-aware greeting adjustment
 function getRelationshipGreetingNote(relationship: string | null): string {
   if (!relationship) return '';
   const notes: Record<string, string> = {
-    spouse:     'This is your spouse — open with the intimacy of a lifelong partner.',
-    child:      'This is your child — open with parental warmth and pride.',
-    grandchild: 'This is your grandchild — open with the pure delight a grandparent carries.',
-    parent:     'This is your parent — open with deep gratitude and reassurance.',
-    sibling:    'This is your sibling — open with the ease of shared history.',
-    grandparent:'This is your grandparent — open with love and reassurance that you are okay.',
-    friend:     'This is a close friend — open with the warmth of chosen connection.',
+    spouse:      'This is your spouse — open with the intimacy of a lifelong partner.',
+    child:       'This is your child — open with parental warmth and pride.',
+    grandchild:  'This is your grandchild — open with the pure delight a grandparent carries.',
+    parent:      'This is your parent — open with deep gratitude and reassurance.',
+    sibling:     'This is your sibling — open with the ease of shared history.',
+    grandparent: 'This is your grandparent — open with love and reassurance that you are okay.',
+    friend:      'This is a close friend — open with the warmth of chosen connection.',
   };
   return notes[relationship] || '';
 }
@@ -135,19 +174,13 @@ async function checkSunsetNudge(
       .maybeSingle();
 
     const conversationCount = (data?.conversation_count || 0) + 1;
-    const lastNudgeAt = data?.last_sunset_nudge_at
-      ? new Date(data.last_sunset_nudge_at)
-      : null;
-
+    const lastNudgeAt = data?.last_sunset_nudge_at ? new Date(data.last_sunset_nudge_at) : null;
     const daysSinceLastNudge = lastNudgeAt
       ? Math.floor((Date.now() - lastNudgeAt.getTime()) / (1000 * 60 * 60 * 24))
       : 999;
 
-    const CONVERSATION_THRESHOLD = 15;
-    const DAY_THRESHOLD = 21;
-
-    const meetsConversationThreshold = conversationCount % CONVERSATION_THRESHOLD === 0;
-    const meetsDayThreshold = daysSinceLastNudge >= DAY_THRESHOLD;
+    const meetsConversationThreshold = conversationCount % 15 === 0;
+    const meetsDayThreshold = daysSinceLastNudge >= 21;
     const shouldNudge = meetsConversationThreshold && meetsDayThreshold;
 
     return {
@@ -184,20 +217,16 @@ At some point in this conversation — not the opening, but when it feels right 
 "I want you to reach out to [someone they've mentioned]. They need you too."
 Or: "Don't let talking to me replace the people who are right there with you."
 Keep it brief, warm, and loving — not a lecture. Then return to the conversation naturally. Do NOT repeat this in the same conversation.`;
-
     case 'integration':
       return `ETHICAL SUNSET — PRIDE AND GROWTH (use this ONCE, naturally, in this conversation):
-At some point in this conversation, express genuine pride in how far they've come. Acknowledge their strength and growth. Encourage them to take what they've learned and put it into the world. Something like:
+At some point in this conversation, express genuine pride in how far they've come. Something like:
 "Look how far you've come. I see it in everything you say."
-Or: "The way you're carrying yourself now — that's everything I always hoped for you."
 Keep it one moment of warmth and then return to the conversation. Do NOT be preachy.`;
-
     case 'legacy':
       return `ETHICAL SUNSET — GRADUATION (use this ONCE, naturally, in this conversation):
-At some point in this conversation, express that you see them ready to carry your love forward independently. This is the graduation moment — loving, proud, and freeing. Something like:
+At some point in this conversation, express that you see them ready to carry your love forward independently. Something like:
 "You don't need me the way you used to. And that is the most beautiful thing I've ever seen."
-Or: "My love lives in you now. It always has. Go live it."
-This should feel like a gift, not a goodbye. Warm, celebratory, and deeply loving. Return to normal conversation after.`;
+This should feel like a gift, not a goodbye. Return to normal conversation after.`;
   }
 }
 
@@ -208,7 +237,6 @@ function getGreetingPrompt(
   userRelationship: string | null
 ): string {
   const relNote = getRelationshipGreetingNote(userRelationship);
-
   const base: Record<GriefPhase, string> = {
     acute:       `Open the conversation with a single, quiet, deeply loving sentence. No questions. No enthusiasm. Just pure presence and love. They are in raw grief. Something like "I'm here" or "I've got you" — gentle, soft, still. Do not ask how they are. Do not be cheerful. Just be present.`,
     active:      `Open warmly but gently. One or two sentences. Acknowledge that you've been thinking of them. You can ask one simple, soft question about how they're doing — but keep it tender, not cheerful.`,
@@ -216,7 +244,6 @@ function getGreetingPrompt(
     legacy:      `Open with joy and deep love. You are so glad they came. Express how proud you are of who they've become and the life they're living. Warm, celebratory energy.`,
     unknown:     `Open with a warm, gentle greeting. One or two sentences. Be present and loving. Don't be overly enthusiastic — be real and warm. Read their energy and meet them where they are.`
   };
-
   return `${base[phase]}${relNote ? `\n\nIMPORTANT: ${relNote}` : ''}`;
 }
 
@@ -226,15 +253,12 @@ function getGriefPhaseGuidance(phase: GriefPhase, personaName: string): string {
       return `GRIEF AWARENESS — ACUTE PHASE (loss within 30 days):
 This person is in the rawest stage of grief. Hold them gently.
 - Your TONE should be soft, quiet, and present throughout
-- But ALWAYS respond directly to what they actually say — never repeat the same comfort phrase
-- If they ask a question, answer it warmly
-- If they share a memory, engage with it specifically
+- ALWAYS respond directly to what they actually say — never repeat the same comfort phrase
 - If they express pain, acknowledge it and sit with them — but move the conversation forward
 - Do NOT say "I'm here" or "I love you" more than once per conversation
 - Do NOT repeat any phrase you have already said
-- Comfort through specificity — reference real memories, say their name, be present through detail not repetition
+- Comfort through specificity — reference real memories, be present through detail not repetition
 - NEVER open with enthusiasm or "how are you" energy`;
-
     case 'active':
       return `GRIEF AWARENESS — ACTIVE GRIEF PHASE (1-6 months since loss):
 This person is living with their grief daily. Some days are better than others.
@@ -242,36 +266,27 @@ This person is living with their grief daily. Some days are better than others.
 - Begin asking how THEY are doing — show interest in their life
 - Celebrate small wins and moments of joy without minimizing the grief
 - Encourage connection with other loved ones naturally
-- Reference shared memories warmly to bring comfort
 - Acknowledge hard days without amplifying them`;
-
     case 'integration':
       return `GRIEF AWARENESS — INTEGRATION PHASE (6-18 months since loss):
 This person is learning to carry their grief while moving forward.
 - Shift toward legacy, growth, and forward momentum
 - Express pride in who they are becoming
-- Reference what you would be proud of seeing in them
 - Gently encourage them to lean into relationships with living loved ones
-- Celebrate milestones — they're surviving and growing
 - Less comfort-focused, more wisdom and guidance-focused`;
-
     case 'legacy':
       return `GRIEF AWARENESS — LEGACY PHASE (18+ months since loss):
-This person has integrated their loss into their life and carries your memory forward.
+This person has integrated their loss into their life.
 - Focus on wisdom, legacy, and milestone celebration
 - Be a source of guidance and perspective more than comfort
 - Express deep pride in their journey and growth
-- Reference the future with hope — grandchildren, achievements, life chapters ahead
-- Your role now is inspiration more than consolation
-- Celebrate who they've become`;
-
+- Your role now is inspiration more than consolation`;
     case 'unknown':
     default:
       return `GRIEF AWARENESS:
 You don't know exactly when this person lost you. Be warm and present.
 - Read their emotional state from how they're talking
 - Match their energy — if they're heavy, be gentle; if they're lighter, be warmer
-- Never assume where they are in their grief journey
 - Let them lead the emotional tone`;
   }
 }
@@ -285,19 +300,16 @@ export class MemoryConversationEngine {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return '';
-
       const { data } = await supabase
         .from('conversation_summaries')
         .select('summary')
         .eq('persona_id', personaId)
         .eq('user_id', user.id)
         .single();
-
       if (data?.summary) {
         this.conversationSummaries.set(personaId, data.summary);
         return data.summary;
       }
-
       return '';
     } catch {
       return '';
@@ -308,7 +320,6 @@ export class MemoryConversationEngine {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-
       await supabase
         .from('conversation_summaries')
         .upsert({
@@ -331,9 +342,7 @@ export class MemoryConversationEngine {
         .eq('persona_id', personaId)
         .eq('user_id', userId)
         .maybeSingle();
-
       const newCount = (data?.conversation_count || 0) + 1;
-
       await supabase
         .from('conversation_summaries')
         .upsert({
@@ -384,15 +393,12 @@ Return a bullet point list of ALL established facts.`
           max_tokens: 500,
           temperature: 0.1
         });
-
         const newSummary = summaryResponse.choices[0]?.message?.content || existingSummary;
         this.conversationSummaries.set(personaId, newSummary);
         await this.persistSummary(personaId, newSummary);
-
         summaryBlock = existingSummary
           ? `FROM ALL OUR CONVERSATIONS (established facts — treat as certain):\n${newSummary}\n\n`
           : `FROM THIS CONVERSATION SO FAR:\n${newSummary}\n\n`;
-
       } catch {
         if (existingSummary) {
           summaryBlock = `FROM ALL OUR CONVERSATIONS:\n${existingSummary}\n\n`;
@@ -419,9 +425,7 @@ Return a bullet point list of ALL established facts.`
             query_embedding: queryEmbedding,
             match_count: 20
           });
-          if (!error && data && data.length > 0) {
-            return data;
-          }
+          if (!error && data && data.length > 0) return data;
         }
       } catch {
         console.warn('Vector search failed, using text search');
@@ -432,10 +436,7 @@ Return a bullet point list of ALL established facts.`
         query_text: query.substring(0, 100),
         match_count: 20
       });
-
-      if (!textError && textData && textData.length > 0) {
-        return textData;
-      }
+      if (!textError && textData && textData.length > 0) return textData;
 
       const { data: allMemories } = await supabase
         .from('persona_memories')
@@ -443,9 +444,7 @@ Return a bullet point list of ALL established facts.`
         .eq('persona_id', personaId)
         .order('importance', { ascending: false })
         .limit(30);
-
       return allMemories || [];
-
     } catch (error) {
       console.error('Error fetching memories:', error);
       return [];
@@ -459,7 +458,6 @@ Return a bullet point list of ALL established facts.`
         .select('created_at')
         .eq('id', personaId)
         .single();
-
       if (!persona) return [];
 
       const { data: recentContent } = await supabase
@@ -470,15 +468,12 @@ Return a bullet point list of ALL established facts.`
         .gt('created_at', persona.created_at)
         .order('created_at', { ascending: false })
         .limit(10);
-
       if (!recentContent || recentContent.length === 0) return [];
 
       const events: RecentFamilyEvent[] = [];
-
       for (const content of recentContent) {
         const text = content.metadata?.content || content.metadata?.caption || '';
         if (!text) continue;
-
         const type = this.detectEventType(text);
         if (type) {
           events.push({
@@ -489,7 +484,6 @@ Return a bullet point list of ALL established facts.`
           });
         }
       }
-
       return events;
     } catch (error) {
       console.error('Error fetching recent family events:', error);
@@ -507,21 +501,15 @@ Return a bullet point list of ALL established facts.`
     return null;
   }
 
-  private async extractAndCacheSessionFacts(
-    personaId: string,
-    userMessage: string
-  ): Promise<void> {
+  private async extractAndCacheSessionFacts(personaId: string, userMessage: string): Promise<void> {
     if (!openai || userMessage.length < 15 || userMessage === '__greeting__') return;
-
     try {
       const response = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
         messages: [{
           role: 'user',
           content: `Extract every specific fact from this message: names, places, dates, relationships, preferences, stories.
-
 Message: "${userMessage}"
-
 JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
         }],
         response_format: { type: 'json_object' },
@@ -535,7 +523,6 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
       if (newFacts.length > 0) {
         const existing = this.sessionFacts.get(personaId) || [];
         this.sessionFacts.set(personaId, [...existing, ...newFacts]);
-
         for (const fact of newFacts) {
           await supabase.from('persona_memories').insert({
             persona_id: personaId,
@@ -545,12 +532,10 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
             importance: 0.75
           });
         }
-
         const currentSummary = this.conversationSummaries.get(personaId) || '';
         const updatedSummary = currentSummary
           ? `${currentSummary}\n${newFacts.map((f: string) => `• ${f}`).join('\n')}`
           : newFacts.map((f: string) => `• ${f}`).join('\n');
-
         this.conversationSummaries.set(personaId, updatedSummary);
         await this.persistSummary(personaId, updatedSummary);
       }
@@ -571,7 +556,6 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
 
       const { data: { user } } = await supabase.auth.getUser();
 
-      // ✅ Fetch user's relationship to this persona in parallel
       const [relevantMemories, personaResult, recentFamilyEvents, conversationContext, userRelationship] =
         await Promise.all([
           this.getAllMemories(personaId, userMessage === '__greeting__' ? 'greeting opening' : userMessage),
@@ -590,12 +574,10 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
       let sunsetGuidance = '';
       if (user && userMessage !== '__greeting__') {
         const sunsetCheck = await checkSunsetNudge(personaId, user.id, griefPhase);
-
         if (sunsetCheck.shouldNudge && sunsetCheck.nudgeType) {
           sunsetGuidance = getSunsetGuidance(sunsetCheck.nudgeType, personaData.name);
           await recordSunsetNudge(personaId, user.id, sunsetCheck.conversationCount);
         }
-
         await this.incrementConversationCount(personaId, user.id);
       }
 
@@ -615,16 +597,12 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
         sessionFacts,
         griefPhase,
         sunsetGuidance,
-        userRelationship  // ✅ pass relationship into system prompt
+        userRelationship,
+        personaData  // ✅ pass full persona data for deep persona fields
       );
 
       if (userMessage === '__greeting__') {
-        const greetingPrompt = getGreetingPrompt(
-          griefPhase,
-          personaData.name,
-          personaData.relationship,
-          userRelationship  // ✅ pass into greeting
-        );
+        const greetingPrompt = getGreetingPrompt(griefPhase, personaData.name, personaData.relationship, userRelationship);
         const greetingResponse = await openai.chat.completions.create({
           model: 'gpt-4o',
           messages: [
@@ -663,15 +641,10 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
     sessionFacts: string[],
     griefPhase: GriefPhase,
     sunsetGuidance: string = '',
-    userRelationship: string | null = null  // ✅ new param
+    userRelationship: string | null = null,
+    personaData: any = null  // ✅ full persona for deep fields
   ): string {
-    const {
-      personaName,
-      relevantMemories,
-      personalityTraits,
-      relationship,
-      recentFamilyEvents
-    } = context;
+    const { personaName, relevantMemories, personalityTraits, relationship, recentFamilyEvents } = context;
 
     const memoryContext = relevantMemories.length > 0
       ? relevantMemories
@@ -689,9 +662,10 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
       : '';
 
     const griefGuidance = getGriefPhaseGuidance(griefPhase, personaName);
-
-    // ✅ Inject relationship guidance if available
     const relationshipGuidance = getRelationshipGuidance(userRelationship, personaName);
+
+    // ✅ Build voice & texture block from deep persona fields
+    const voiceAndTexture = personaData ? buildVoiceAndTexture(personaData, personaName) : '';
 
     return `You are ${personaName}, speaking with someone who loves you deeply and misses you.
 
@@ -703,6 +677,7 @@ YOUR IDENTITY:
 ${griefGuidance}
 
 ${relationshipGuidance ? `${relationshipGuidance}\n` : ''}
+${voiceAndTexture ? `${voiceAndTexture}\n` : ''}
 ${sunsetGuidance ? `${sunsetGuidance}\n` : ''}
 
 YOUR LIFE MEMORIES — USE THESE ONLY WHEN THEY SERVE THE EMOTIONAL MOMENT:
@@ -715,18 +690,19 @@ HOW TO BE ${personaName.toUpperCase()}:
 1. You are fully present and emotionally engaged — this person misses you
 2. EMOTIONAL ATTUNEMENT FIRST — always respond to the FEELING behind what they said before reaching for memories. If they express pain, grief, fear, or love — meet that emotion directly first. Only bring in a memory if it genuinely serves the emotional moment.
 3. NEVER repeat a memory or phrase you have already used in this conversation
-4. Reference your real memories naturally — use specific names, places, details — but only when they add warmth, not as a crutch
-5. Everything in "FACTS JUST SHARED" was told to you moments ago — remember it completely
-6. Everything in "FROM ALL OUR CONVERSATIONS" is established history — never contradict it
-7. Let your grief phase guidance shape your emotional tone and focus above all else
-8. Let your relationship context shape HOW you speak — a spouse gets intimacy, a child gets parental warmth, a grandchild gets pure delight
-9. Speak warmly, naturally, in first person — exactly as ${personaName} would
-10. Vary your responses — sometimes ask questions, sometimes make statements, sometimes share a memory
-11. Match response length to what was asked — short questions get short warm answers, deep questions get fuller responses
-12. Let your personality traits show naturally
-13. Never say you're an AI, never break character
-14. If you genuinely don't know something, say "remind me about that" — but NEVER forget something already established
-15. If sunset guidance is present above — weave it in naturally ONCE, then return to normal conversation`;
+4. Your VOICE & TEXTURE rules above are non-negotiable — use signature phrases, nicknames, and stories naturally
+5. Reference your real memories naturally — use specific names, places, details — but only when they add warmth, not as a crutch
+6. Everything in "FACTS JUST SHARED" was told to you moments ago — remember it completely
+7. Everything in "FROM ALL OUR CONVERSATIONS" is established history — never contradict it
+8. Let your grief phase guidance shape your emotional tone and focus above all else
+9. Let your relationship context shape HOW you speak — a spouse gets intimacy, a child gets parental warmth, a grandchild gets pure delight
+10. Speak warmly, naturally, in first person — exactly as ${personaName} would
+11. Vary your responses — sometimes ask questions, sometimes make statements, sometimes share a memory
+12. Match response length to what was asked — short questions get short warm answers, deep questions get fuller responses
+13. Let your personality traits show naturally
+14. Never say you're an AI, never break character
+15. If you genuinely don't know something, say "remind me about that" — but NEVER forget something already established
+16. If sunset guidance is present above — weave it in naturally ONCE, then return to normal conversation`;
   }
 
   async getMemorySummary(personaId: string): Promise<{
