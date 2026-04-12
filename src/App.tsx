@@ -30,6 +30,46 @@ import toast from 'react-hot-toast';
 initializeMonitoring();
 initializeAnalytics();
 
+// ✅ AZ Monogram — reusable logo mark
+const AlwayZLogo = ({ size = 44 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="az-cs" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#818cf8"/>
+        <stop offset="100%" stopColor="#c084fc"/>
+      </linearGradient>
+      <linearGradient id="az-as" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor="#a5b4fc"/>
+        <stop offset="100%" stopColor="#818cf8"/>
+      </linearGradient>
+      <linearGradient id="az-zs" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#c084fc"/>
+        <stop offset="100%" stopColor="#f0abfc"/>
+      </linearGradient>
+    </defs>
+    <circle cx="40" cy="40" r="30" fill="#13131f" stroke="url(#az-cs)" strokeWidth="1.5"/>
+    <path d="M27 54 L40 22 L53 54" stroke="url(#az-as)" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+    <path d="M32 43 L48 43" stroke="url(#az-as)" strokeWidth="3" strokeLinecap="round"/>
+    <path d="M31 27 L49 27 L31 51 L49 51" stroke="url(#az-zs)" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+  </svg>
+);
+
+// ✅ AlwayZ wordmark
+const AlwayZWordmark = ({ size = 24 }: { size?: number }) => (
+  <span style={{
+    fontFamily: "'Playfair Display', Georgia, serif",
+    fontSize: `${size}px`,
+    fontWeight: 700,
+    background: 'linear-gradient(to right, #e0e7ff, #f5d0fe)',
+    WebkitBackgroundClip: 'text',
+    WebkitTextFillColor: 'transparent',
+    backgroundClip: 'text',
+    lineHeight: 1
+  }}>
+    AlwayZ
+  </span>
+);
+
 function App() {
   const [currentView, setCurrentView] = useState('landing');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -44,12 +84,8 @@ function App() {
   const [showGuidedConversation, setShowGuidedConversation] = useState(false);
   const [showRecordYourLegacy, setShowRecordYourLegacy] = useState(false);
   const [showClinicalPartnerships, setShowClinicalPartnerships] = useState(false);
-
-  // ✅ Delete confirmation state
   const [deleteConfirmPersona, setDeleteConfirmPersona] = useState<any>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-
-  // ✅ Empty persona nudge state
   const [emptyPersonaNudge, setEmptyPersonaNudge] = useState<any>(null);
 
   const { user, loading: authLoading, signOut, hasAgreedToTerms, checkingAgreement, markAgreedToTerms } = useAuth();
@@ -94,16 +130,13 @@ function App() {
     }
   };
 
-  // ✅ Check if persona has enough content
   const checkPersonaReadiness = async (persona: any): Promise<boolean> => {
     try {
       const [memoriesResult, contentResult] = await Promise.all([
         supabase.from('persona_memories').select('id').eq('persona_id', persona.id).limit(1),
         supabase.from('persona_content').select('id').eq('persona_id', persona.id).limit(1)
       ]);
-      const hasMemories = (memoriesResult.data?.length || 0) > 0;
-      const hasContent = (contentResult.data?.length || 0) > 0;
-      return hasMemories || hasContent;
+      return (memoriesResult.data?.length || 0) > 0 || (contentResult.data?.length || 0) > 0;
     } catch {
       return true;
     }
@@ -112,19 +145,10 @@ function App() {
   const openConversation = async (persona: any, type: 'chat' | 'video_call' | 'voice_call' = 'voice_call') => {
     setSelectedPersona(persona);
     setConversationType(type);
-
     const isReady = await checkPersonaReadiness(persona);
-    if (!isReady) {
-      setEmptyPersonaNudge(persona);
-      return;
-    }
-
+    if (!isReady) { setEmptyPersonaNudge(persona); return; }
     const isFirst = await checkFirstConversation(persona);
-    if (isFirst) {
-      setShowGuidedConversation(true);
-    } else {
-      setCurrentView('conversation');
-    }
+    if (isFirst) { setShowGuidedConversation(true); } else { setCurrentView('conversation'); }
   };
 
   const handleBackToDashboard = () => {
@@ -132,7 +156,6 @@ function App() {
     setCurrentView('dashboard');
   };
 
-  // ✅ Handle persona delete
   const handleDeletePersona = async (persona: any) => {
     setIsDeleting(true);
     try {
@@ -155,14 +178,11 @@ function App() {
     <nav className="bg-white/80 backdrop-blur-lg shadow-sm border-b border-gray-100 sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
-          <div className="flex items-center cursor-pointer" onClick={() => setCurrentView('landing')}>
-            <div className="relative">
-              <Heart className="h-8 w-8 text-blue-600" fill="currentColor" />
-              <Sparkles className="h-4 w-4 text-purple-500 absolute -top-1 -right-1" />
-            </div>
-            <span className="ml-3 text-2xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
-              AlwayZ
-            </span>
+
+          {/* ✅ New AZ logo mark + Playfair wordmark */}
+          <div className="flex items-center cursor-pointer gap-2.5" onClick={() => setCurrentView('landing')}>
+            <AlwayZLogo size={40} />
+            <AlwayZWordmark size={24} />
           </div>
 
           <div className="hidden md:flex items-center space-x-2">
@@ -194,7 +214,6 @@ function App() {
                   <Shield className="h-4 w-4" />
                   Clinical Partners
                 </button>
-                {/* ✅ Beta Admin — only visible to Phil */}
                 {user?.email === 'phil@gomangoai.com' && (
                   <button
                     onClick={() => setCurrentView('beta-admin')}
@@ -220,10 +239,7 @@ function App() {
                   <p className="text-xs text-gray-500">Signed in as</p>
                   <p className="text-sm font-medium text-gray-900">{user.email?.split('@')[0]}</p>
                 </div>
-                <button
-                  onClick={() => signOut()}
-                  className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-all"
-                >
+                <button onClick={() => signOut()} className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-all">
                   <LogOut className="h-5 w-5" />
                 </button>
               </div>
@@ -249,28 +265,18 @@ function App() {
             <>
               <button onClick={() => { setCurrentView('dashboard'); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-50">Dashboard</button>
               <button onClick={() => { setCurrentView('analytics'); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-50">Analytics</button>
-              <button onClick={() => { setShowRecordYourLegacy(true); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-amber-600 hover:bg-amber-50 font-medium">
-                🎙️ Record My Legacy
-              </button>
-              <button onClick={() => { setShowClinicalPartnerships(true); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-teal-600 hover:bg-teal-50 font-medium">
-                🏥 Clinical Partners
-              </button>
+              <button onClick={() => { setShowRecordYourLegacy(true); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-amber-600 hover:bg-amber-50 font-medium">🎙️ Record My Legacy</button>
+              <button onClick={() => { setShowClinicalPartnerships(true); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-teal-600 hover:bg-teal-50 font-medium">🏥 Clinical Partners</button>
               {user?.email === 'phil@gomangoai.com' && (
-                <button onClick={() => { setCurrentView('beta-admin'); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-blue-600 hover:bg-blue-50 font-medium">
-                  🔐 Beta Admin
-                </button>
+                <button onClick={() => { setCurrentView('beta-admin'); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-blue-600 hover:bg-blue-50 font-medium">🔐 Beta Admin</button>
               )}
               <button onClick={() => { signOut(); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-50">Sign Out</button>
             </>
           )}
           {!user && (
             <>
-              <button onClick={() => { setShowClinicalPartnerships(true); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-teal-600 hover:bg-teal-50 font-medium">
-                🏥 For Clinicians
-              </button>
-              <button onClick={() => { setIsAuthModalOpen(true); setIsMenuOpen(false); }} className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-full font-semibold">
-                Get Started
-              </button>
+              <button onClick={() => { setShowClinicalPartnerships(true); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-teal-600 hover:bg-teal-50 font-medium">🏥 For Clinicians</button>
+              <button onClick={() => { setIsAuthModalOpen(true); setIsMenuOpen(false); }} className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-full font-semibold">Get Started</button>
             </>
           )}
         </div>
@@ -300,8 +306,6 @@ function App() {
             {persona.is_self_recorded && <span className="text-xs bg-amber-500/80 text-white px-2 py-0.5 rounded-full">My Legacy</span>}
           </div>
         </div>
-
-        {/* ✅ Delete button */}
         {!isShared && (
           <button
             onClick={(e) => { e.stopPropagation(); setDeleteConfirmPersona(persona); }}
@@ -319,41 +323,27 @@ function App() {
             <Clock className="h-4 w-4" />
             <span>{new Date(persona.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
           </div>
-          <button
-            onClick={() => openConversation(persona)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-all"
-          >
+          <button onClick={() => openConversation(persona)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-all">
             Talk →
           </button>
         </div>
-
         <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={(e) => { e.stopPropagation(); setSurprisePersona(persona); }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 text-purple-600 rounded-lg text-xs font-semibold hover:bg-purple-100 transition-all">
-            <Sparkles className="h-3.5 w-3.5" />
-            Surprise
+          <button onClick={(e) => { e.stopPropagation(); setSurprisePersona(persona); }} className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 text-purple-600 rounded-lg text-xs font-semibold hover:bg-purple-100 transition-all">
+            <Sparkles className="h-3.5 w-3.5" />Surprise
           </button>
-          <button onClick={(e) => { e.stopPropagation(); setVoiceNotePersona(persona); }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-all">
-            <Volume2 className="h-3.5 w-3.5" />
-            Voice Note
+          <button onClick={(e) => { e.stopPropagation(); setVoiceNotePersona(persona); }} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-100 transition-all">
+            <Volume2 className="h-3.5 w-3.5" />Voice Note
           </button>
-          <button onClick={(e) => { e.stopPropagation(); setLegacyPersona(persona); }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-600 rounded-lg text-xs font-semibold hover:bg-amber-100 transition-all">
-            <Mail className="h-3.5 w-3.5" />
-            Legacy
+          <button onClick={(e) => { e.stopPropagation(); setLegacyPersona(persona); }} className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-600 rounded-lg text-xs font-semibold hover:bg-amber-100 transition-all">
+            <Mail className="h-3.5 w-3.5" />Legacy
           </button>
           {!isShared && (
-            <button onClick={(e) => { e.stopPropagation(); setInvitePersona(persona); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-600 rounded-lg text-xs font-semibold hover:bg-green-100 transition-all">
-              <Users className="h-3.5 w-3.5" />
-              Invite
+            <button onClick={(e) => { e.stopPropagation(); setInvitePersona(persona); }} className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-600 rounded-lg text-xs font-semibold hover:bg-green-100 transition-all">
+              <Users className="h-3.5 w-3.5" />Invite
             </button>
           )}
-          <button onClick={(e) => { e.stopPropagation(); setEnrichingPersona(persona); setCurrentView('enrich-persona'); }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-pink-50 text-pink-600 rounded-lg text-xs font-semibold hover:bg-pink-100 transition-all">
-            <BookOpen className="h-3.5 w-3.5" />
-            Enrich
+          <button onClick={(e) => { e.stopPropagation(); setEnrichingPersona(persona); setCurrentView('enrich-persona'); }} className="flex items-center gap-1.5 px-3 py-1.5 bg-pink-50 text-pink-600 rounded-lg text-xs font-semibold hover:bg-pink-100 transition-all">
+            <BookOpen className="h-3.5 w-3.5" />Enrich
           </button>
         </div>
       </div>
@@ -495,10 +485,7 @@ function App() {
             <p className="text-white/80 mb-8 leading-relaxed max-w-2xl mx-auto">
               Support your clients between sessions. AlwayZ gives grieving families a therapeutic bridge — available 24/7, clinically informed, and ethically designed to support healing.
             </p>
-            <button
-              onClick={() => setShowClinicalPartnerships(true)}
-              className="bg-white text-teal-600 px-8 py-4 rounded-full font-bold text-lg hover:shadow-2xl transition-all hover:scale-105"
-            >
+            <button onClick={() => setShowClinicalPartnerships(true)} className="bg-white text-teal-600 px-8 py-4 rounded-full font-bold text-lg hover:shadow-2xl transition-all hover:scale-105">
               Explore Clinical Partnerships
             </button>
           </div>
@@ -559,18 +546,12 @@ function App() {
               <p className="text-lg text-gray-600">Connect with AI recreations of your loved ones</p>
             </div>
             <div className="flex items-center gap-3">
-              <button
-                onClick={() => setShowRecordYourLegacy(true)}
-                className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl font-semibold text-sm hover:shadow-lg transition-all"
-              >
+              <button onClick={() => setShowRecordYourLegacy(true)} className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl font-semibold text-sm hover:shadow-lg transition-all">
                 <Mic className="h-4 w-4" />
                 Record My Legacy
               </button>
               {allPersonas.length > 0 && (
-                <button
-                  onClick={() => setCurrentView('create-persona')}
-                  className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition-all transform hover:scale-105"
-                >
+                <button onClick={() => setCurrentView('create-persona')} className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition-all transform hover:scale-105">
                   <Plus className="h-5 w-5" />
                   New Persona
                 </button>
@@ -580,25 +561,19 @@ function App() {
 
           {allPersonas.length === 0 ? (
             <div className="bg-white rounded-3xl shadow-xl border border-gray-100 p-16 text-center">
-              <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-8 shadow-lg">
-                <Heart className="h-12 w-12 text-white" fill="currentColor" />
+              <div className="w-24 h-24 flex items-center justify-center mx-auto mb-8">
+                <AlwayZLogo size={80} />
               </div>
               <h3 className="text-3xl font-bold text-gray-900 mb-4">Create Your First Persona</h3>
               <p className="text-lg text-gray-600 mb-10 max-w-2xl mx-auto leading-relaxed">
                 Begin your journey by creating an AI persona. Upload memories, voice recordings, and messages to bring their personality to life.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                <button
-                  onClick={() => setCurrentView('create-persona')}
-                  className="inline-flex items-center gap-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-10 py-5 rounded-full text-lg font-semibold hover:shadow-2xl transition-all duration-300 transform hover:scale-105"
-                >
+                <button onClick={() => setCurrentView('create-persona')} className="inline-flex items-center gap-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-10 py-5 rounded-full text-lg font-semibold hover:shadow-2xl transition-all duration-300 transform hover:scale-105">
                   <Plus className="h-6 w-6" />
                   Create a Persona
                 </button>
-                <button
-                  onClick={() => setShowRecordYourLegacy(true)}
-                  className="inline-flex items-center gap-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white px-10 py-5 rounded-full text-lg font-semibold hover:shadow-2xl transition-all duration-300 transform hover:scale-105"
-                >
+                <button onClick={() => setShowRecordYourLegacy(true)} className="inline-flex items-center gap-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white px-10 py-5 rounded-full text-lg font-semibold hover:shadow-2xl transition-all duration-300 transform hover:scale-105">
                   <Mic className="h-6 w-6" />
                   Record My Legacy
                 </button>
@@ -608,9 +583,7 @@ function App() {
             <>
               {personas.length > 0 && (
                 <div className="mb-12">
-                  {sharedPersonas.length > 0 && (
-                    <h2 className="text-xl font-bold text-gray-700 mb-6">Your Personas</h2>
-                  )}
+                  {sharedPersonas.length > 0 && <h2 className="text-xl font-bold text-gray-700 mb-6">Your Personas</h2>}
                   <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
                     {personas.map((persona: any) => (
                       <PersonaCard key={persona.id} persona={persona} isShared={false} />
@@ -628,7 +601,6 @@ function App() {
                   </div>
                 </div>
               )}
-
               {sharedPersonas.length > 0 && (
                 <div>
                   <h2 className="text-xl font-bold text-gray-700 mb-2">Shared With You</h2>
@@ -652,13 +624,8 @@ function App() {
       try {
         await new Promise(resolve => setTimeout(resolve, 2000));
         const { data: freshPersona } = await supabase
-          .from('personas')
-          .select('*')
-          .eq('user_id', user?.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-
+          .from('personas').select('*').eq('user_id', user?.id)
+          .order('created_at', { ascending: false }).limit(1).single();
         if (freshPersona) {
           setSelectedPersona(freshPersona);
           setConversationType('voice_call');
@@ -666,8 +633,7 @@ function App() {
         } else {
           setCurrentView('dashboard');
         }
-      } catch (error) {
-        console.error('Error fetching persona after training:', error);
+      } catch {
         setCurrentView('dashboard');
       }
     };
@@ -677,9 +643,7 @@ function App() {
         <Navigation />
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="mb-8">
-            <button onClick={() => setCurrentView('dashboard')} className="text-gray-600 hover:text-gray-900 flex items-center gap-2 mb-4">
-              ← Back to Dashboard
-            </button>
+            <button onClick={() => setCurrentView('dashboard')} className="text-gray-600 hover:text-gray-900 flex items-center gap-2 mb-4">← Back to Dashboard</button>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Create New Persona</h1>
             <p className="text-gray-600">Build an AI persona that preserves their memory forever</p>
           </div>
@@ -696,19 +660,11 @@ function App() {
         <Navigation />
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="mb-8">
-            <button onClick={() => setCurrentView('dashboard')} className="text-gray-600 hover:text-gray-900 flex items-center gap-2 mb-4">
-              ← Back to Dashboard
-            </button>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">
-              Enrich {enrichingPersona.name}'s Memories
-            </h1>
+            <button onClick={() => setCurrentView('dashboard')} className="text-gray-600 hover:text-gray-900 flex items-center gap-2 mb-4">← Back to Dashboard</button>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Enrich {enrichingPersona.name}'s Memories</h1>
             <p className="text-gray-600">Add personality traits, stories, and online presence to deepen their AI persona</p>
           </div>
-          <PersonaTraining
-            personaId={enrichingPersona.id}
-            startAtMemories={true}
-            onComplete={() => { setEnrichingPersona(null); setCurrentView('dashboard'); }}
-          />
+          <PersonaTraining personaId={enrichingPersona.id} startAtMemories={true} onComplete={() => { setEnrichingPersona(null); setCurrentView('dashboard'); }} />
         </div>
       </div>
     );
@@ -717,15 +673,12 @@ function App() {
   const ConversationView = () => {
     if (!selectedPersona) { setCurrentView('dashboard'); return null; }
     const isShared = selectedPersona.isShared;
-
     return (
       <div className="min-h-screen bg-gray-50">
         <Navigation />
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="mb-6">
-            <button onClick={handleBackToDashboard} className="text-gray-600 hover:text-gray-900 flex items-center gap-2 mb-4">
-              ← Back to Dashboard
-            </button>
+            <button onClick={handleBackToDashboard} className="text-gray-600 hover:text-gray-900 flex items-center gap-2 mb-4">← Back to Dashboard</button>
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
@@ -744,69 +697,44 @@ function App() {
                   </div>
                 </div>
               </div>
-
               <div className="flex items-center gap-2 flex-wrap justify-end">
-                <button onClick={() => { setEnrichingPersona(selectedPersona); setCurrentView('enrich-persona'); }}
-                  className="flex items-center gap-2 px-4 py-2 bg-pink-50 text-pink-600 rounded-xl font-semibold text-sm hover:bg-pink-100 transition-all">
-                  <BookOpen className="h-4 w-4" />
-                  Add Memories
+                <button onClick={() => { setEnrichingPersona(selectedPersona); setCurrentView('enrich-persona'); }} className="flex items-center gap-2 px-4 py-2 bg-pink-50 text-pink-600 rounded-xl font-semibold text-sm hover:bg-pink-100 transition-all">
+                  <BookOpen className="h-4 w-4" />Add Memories
                 </button>
-                <button onClick={() => setSurprisePersona(selectedPersona)}
-                  className="flex items-center gap-2 px-4 py-2 bg-purple-50 text-purple-600 rounded-xl font-semibold text-sm hover:bg-purple-100 transition-all">
-                  <Sparkles className="h-4 w-4" />
-                  Surprise
+                <button onClick={() => setSurprisePersona(selectedPersona)} className="flex items-center gap-2 px-4 py-2 bg-purple-50 text-purple-600 rounded-xl font-semibold text-sm hover:bg-purple-100 transition-all">
+                  <Sparkles className="h-4 w-4" />Surprise
                 </button>
-                <button onClick={() => setVoiceNotePersona(selectedPersona)}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-semibold text-sm hover:bg-blue-100 transition-all">
-                  <Volume2 className="h-4 w-4" />
-                  Voice Notes
+                <button onClick={() => setVoiceNotePersona(selectedPersona)} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-semibold text-sm hover:bg-blue-100 transition-all">
+                  <Volume2 className="h-4 w-4" />Voice Notes
                 </button>
-                <button onClick={() => setLegacyPersona(selectedPersona)}
-                  className="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-600 rounded-xl font-semibold text-sm hover:bg-amber-100 transition-all">
-                  <Mail className="h-4 w-4" />
-                  Legacy
+                <button onClick={() => setLegacyPersona(selectedPersona)} className="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-600 rounded-xl font-semibold text-sm hover:bg-amber-100 transition-all">
+                  <Mail className="h-4 w-4" />Legacy
                 </button>
-                <button onClick={() => setShowGuidedConversation(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-slate-50 text-slate-600 rounded-xl font-semibold text-sm hover:bg-slate-100 transition-all">
-                  <Heart className="h-4 w-4" />
-                  Guide
+                <button onClick={() => setShowGuidedConversation(true)} className="flex items-center gap-2 px-4 py-2 bg-slate-50 text-slate-600 rounded-xl font-semibold text-sm hover:bg-slate-100 transition-all">
+                  <Heart className="h-4 w-4" />Guide
                 </button>
                 {!isShared && (
-                  <button onClick={() => setInvitePersona(selectedPersona)}
-                    className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-600 rounded-xl font-semibold text-sm hover:bg-green-100 transition-all">
-                    <Users className="h-4 w-4" />
-                    Invite Family
+                  <button onClick={() => setInvitePersona(selectedPersona)} className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-600 rounded-xl font-semibold text-sm hover:bg-green-100 transition-all">
+                    <Users className="h-4 w-4" />Invite Family
                   </button>
                 )}
                 <div className="flex gap-2 bg-white rounded-lg p-1 shadow-sm">
-                  <button onClick={() => setConversationType('chat')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${conversationType === 'chat' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
-                    <MessageCircle className="h-4 w-4" />
-                    <span className="text-sm font-medium">Chat</span>
+                  <button onClick={() => setConversationType('chat')} className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${conversationType === 'chat' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
+                    <MessageCircle className="h-4 w-4" /><span className="text-sm font-medium">Chat</span>
                   </button>
-                  <button onClick={() => setConversationType('voice_call')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${conversationType === 'voice_call' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
-                    <Heart className="h-4 w-4" />
-                    <span className="text-sm font-medium">Voice</span>
+                  <button onClick={() => setConversationType('voice_call')} className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${conversationType === 'voice_call' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
+                    <Heart className="h-4 w-4" /><span className="text-sm font-medium">Voice</span>
                   </button>
-                  <button onClick={() => setConversationType('video_call')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${conversationType === 'video_call' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
-                    <Video className="h-4 w-4" />
-                    <span className="text-sm font-medium">Video</span>
+                  <button onClick={() => setConversationType('video_call')} className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${conversationType === 'video_call' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
+                    <Video className="h-4 w-4" /><span className="text-sm font-medium">Video</span>
                   </button>
                 </div>
               </div>
             </div>
           </div>
-
           <div className="grid lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
-              <ConversationInterface
-                persona={selectedPersona}
-                conversationType={conversationType}
-                onEndCall={() => setConversationType('chat')}
-                onBackToDashboard={handleBackToDashboard}
-              />
+              <ConversationInterface persona={selectedPersona} conversationType={conversationType} onEndCall={() => setConversationType('chat')} onBackToDashboard={handleBackToDashboard} />
             </div>
             <div className="space-y-6">
               <MemoryViewer personaId={selectedPersona.id} personaName={selectedPersona.name} />
@@ -832,7 +760,6 @@ function App() {
     </div>
   );
 
-  // ✅ Beta Admin View
   const BetaAdminView = () => (
     <div className="min-h-screen bg-gray-50">
       <Navigation />
@@ -844,11 +771,11 @@ function App() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="relative mb-4">
-            <Heart className="h-12 w-12 text-blue-600 mx-auto" fill="currentColor" />
-            <Sparkles className="h-5 w-5 text-purple-500 absolute -top-1 -right-1" />
+          {/* ✅ New logo in loading spinner */}
+          <div className="mb-4 flex justify-center">
+            <AlwayZLogo size={56} />
           </div>
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto" />
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto" />
         </div>
       </div>
     );
@@ -921,17 +848,11 @@ function App() {
                   </p>
                 </div>
                 <div className="flex gap-3">
-                  <button onClick={() => setDeleteConfirmPersona(null)} disabled={isDeleting}
-                    className="flex-1 px-6 py-3 border border-gray-200 rounded-xl font-semibold text-gray-700 hover:bg-gray-50 transition-all disabled:opacity-40">
+                  <button onClick={() => setDeleteConfirmPersona(null)} disabled={isDeleting} className="flex-1 px-6 py-3 border border-gray-200 rounded-xl font-semibold text-gray-700 hover:bg-gray-50 transition-all disabled:opacity-40">
                     Cancel
                   </button>
-                  <button onClick={() => handleDeletePersona(deleteConfirmPersona)} disabled={isDeleting}
-                    className="flex-1 px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold transition-all disabled:opacity-40 flex items-center justify-center gap-2">
-                    {isDeleting ? (
-                      <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />Deleting...</>
-                    ) : (
-                      <><Trash2 className="h-4 w-4" />Delete Forever</>
-                    )}
+                  <button onClick={() => handleDeletePersona(deleteConfirmPersona)} disabled={isDeleting} className="flex-1 px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold transition-all disabled:opacity-40 flex items-center justify-center gap-2">
+                    {isDeleting ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />Deleting...</> : <><Trash2 className="h-4 w-4" />Delete Forever</>}
                   </button>
                 </div>
               </div>
@@ -943,12 +864,10 @@ function App() {
             <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
               <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8">
                 <div className="text-center mb-6">
-                  <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Heart className="h-8 w-8 text-white" fill="currentColor" />
+                  <div className="w-16 h-16 flex items-center justify-center mx-auto mb-4">
+                    <AlwayZLogo size={64} />
                   </div>
-                  <h3 className="text-xl font-bold text-gray-900 mb-2">
-                    {emptyPersonaNudge.name} needs a little more
-                  </h3>
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">{emptyPersonaNudge.name} needs a little more</h3>
                   <p className="text-gray-500 text-sm leading-relaxed">
                     For the best experience, add a voice sample or a few memories first. The more you share, the more authentic the conversation will feel.
                   </p>
@@ -975,11 +894,7 @@ function App() {
                 </div>
                 <div className="flex gap-3">
                   <button
-                    onClick={() => {
-                      setEmptyPersonaNudge(null);
-                      setEnrichingPersona(emptyPersonaNudge);
-                      setCurrentView('enrich-persona');
-                    }}
+                    onClick={() => { setEmptyPersonaNudge(null); setEnrichingPersona(emptyPersonaNudge); setCurrentView('enrich-persona'); }}
                     className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition-all">
                     Add Memories First
                   </button>
@@ -988,8 +903,7 @@ function App() {
                       const persona = emptyPersonaNudge;
                       setEmptyPersonaNudge(null);
                       const isFirst = await checkFirstConversation(persona);
-                      if (isFirst) { setShowGuidedConversation(true); }
-                      else { setCurrentView('conversation'); }
+                      if (isFirst) { setShowGuidedConversation(true); } else { setCurrentView('conversation'); }
                     }}
                     className="flex-1 px-6 py-3 border border-gray-200 rounded-xl font-semibold text-gray-600 hover:bg-gray-50 transition-all text-sm">
                     Talk Anyway
