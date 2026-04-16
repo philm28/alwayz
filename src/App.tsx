@@ -26,6 +26,7 @@ import { initializeAnalytics, trackPageView } from './lib/analytics';
 import { Toaster } from 'react-hot-toast';
 import { supabase } from './lib/supabase';
 import toast from 'react-hot-toast';
+import { Haven } from './components/Haven';
 
 initializeMonitoring();
 initializeAnalytics();
