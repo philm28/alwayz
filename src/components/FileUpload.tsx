@@ -191,6 +191,7 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
     }
   };
 
+  // ✅ Fixed processVoiceCloning — no redundant save
   const processVoiceCloning = async (audioFiles: File[]) => {
     if (audioFiles.length === 0) return;
 
@@ -201,27 +202,25 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
       console.log(`Starting voice cloning with ${audioFiles.length} samples`);
       const voiceProfile = await voiceCloning.createVoiceProfile(personaId, audioFiles);
 
-      if (voiceProfile.voiceModelId && !voiceProfile.voiceModelId.startsWith('voice_')) {
-        await supabase
-          .from('personas')
-          .update({ voice_model_id: voiceProfile.voiceModelId })
-          .eq('id', personaId);
-
-        console.log('✅ Voice cloned and saved:', voiceProfile.voiceModelId);
-
-        if (audioFiles.length >= 3) {
-          toast.success(`Voice cloned successfully with ${audioFiles.length} samples!`);
-        } else {
-          toast.success(`${audioFiles.length} voice sample${audioFiles.length > 1 ? 's' : ''} uploaded. Add ${3 - audioFiles.length} more for best results.`);
-        }
+      // ✅ voiceCloning.ts already saved the real ID to Supabase
+      // No save needed here — just show the right toast
+      if (voiceProfile.isCloned) {
+        toast.success(`Voice cloned successfully! ✓`, { duration: 4000 });
+      } else {
+        toast.success(
+          `${audioFiles.length} voice sample${audioFiles.length > 1 ? 's' : ''} uploaded. Add more for best results.`,
+          { duration: 4000 }
+        );
       }
     } catch (error) {
       console.error('Voice cloning error:', error);
       if (error instanceof Error) {
         if (error.message.includes('ELEVENLABS_VALIDATION_ERROR')) {
           toast.error('Audio too short. Please upload at least 1 minute of audio total.', { duration: 6000 });
+        } else if (error.message.includes('ELEVENLABS_PERMISSIONS_ERROR')) {
+          toast.error('ElevenLabs account needs voice cloning permissions. Check your plan.', { duration: 6000 });
         } else {
-          toast.error('Voice cloning failed. Will use standard voices instead.', { duration: 5000 });
+          toast.error('Voice cloning failed. Will use standard voice instead.', { duration: 5000 });
         }
       }
     }
@@ -271,7 +270,7 @@ export function FileUpload({ personaId, onUploadComplete }: FileUploadProps) {
         })
       );
 
-      // Handle voice cloning for audio/video files
+      // ✅ Handle voice cloning for audio/video files
       const voiceFiles = validFiles.filter(f =>
         f.type.startsWith('audio/') || f.type.startsWith('video/')
       );
