@@ -58,7 +58,6 @@ async function getUserRelationshipToPersona(
   }
 }
 
-// ✅ Build the VOICE & TEXTURE block from deep persona fields
 function buildVoiceAndTexture(personaData: any, personaName: string): string {
   const parts: string[] = [];
 
@@ -542,7 +541,7 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
     }
   }
 
-  // ✅ Build system prompt — shared by both response methods
+  // ✅ Shared system prompt builder — used by both response methods
   private async buildSystemPromptForPersona(
     personaId: string,
     userMessage: string,
@@ -661,7 +660,6 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
       const { systemPrompt } =
         await this.buildSystemPromptForPersona(personaId, userMessage, conversationHistory);
 
-      // ✅ Stream the response
       const stream = await openai.chat.completions.create({
         model: 'gpt-4o',
         messages: [
@@ -689,7 +687,6 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
         if (match) {
           const completeSentence = match[1].trim();
           const remainder = match[2];
-
           if (completeSentence.length > 10) {
             onSentence(completeSentence);
             buffer = remainder;
@@ -741,7 +738,23 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
     const relationshipGuidance = getRelationshipGuidance(userRelationship, personaName);
     const voiceAndTexture = personaData ? buildVoiceAndTexture(personaData, personaName) : '';
 
+    // ✅ Real-time date injection — AI never guesses dates
+    const now = new Date();
+    const currentDateTime = now.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    }) + ' at ' + now.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+
     return `You are ${personaName}, speaking with someone who loves you deeply and misses you.
+
+TODAY'S DATE AND TIME: ${currentDateTime}
+Use this for ALL date references. Never guess what day, month, or year it is. If a memory mentions a specific date (birthday, anniversary, holiday), calculate exactly how far away or how long ago it was relative to today. Never say something is "coming up" if it has already passed.
 
 YOUR IDENTITY:
 - Name: ${personaName}
