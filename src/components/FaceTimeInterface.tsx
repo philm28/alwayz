@@ -23,7 +23,6 @@ interface Message {
 
 type VoiceStatus = 'loading' | 'cloning' | 'cloned' | 'fallback';
 
-// ✅ Detect iOS Safari
 function isIOSSafari(): boolean {
   const ua = navigator.userAgent;
   const isIOS = /iPad|iPhone|iPod/.test(ua);
@@ -50,10 +49,8 @@ export function FaceTimeInterface({
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>('loading');
   const [callEnded, setCallEnded] = useState(false);
   const [cloningAttempt, setCloningAttempt] = useState(0);
-
-  // ✅ iOS-specific state
   const [isIOS, setIsIOS] = useState(false);
-  const [waitingForTap, setWaitingForTap] = useState(false); // show "Tap to speak" prompt
+  const [waitingForTap, setWaitingForTap] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -64,6 +61,11 @@ export function FaceTimeInterface({
   const hasInitialized = useRef(false);
   const silenceTimerRef = useRef<any>(null);
   const accumulatedTranscriptRef = useRef('');
+
+  // ✅ Audio queue for streaming sentences
+  const audioQueueRef = useRef<string[]>([]);
+  const isPlayingQueueRef = useRef(false);
+
   const { user } = useAuth();
 
   useEffect(() => {
@@ -99,6 +101,8 @@ export function FaceTimeInterface({
     try { if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ''; } } catch {}
     try { window.speechSynthesis?.cancel(); } catch {}
     accumulatedTranscriptRef.current = '';
+    audioQueueRef.current = [];
+    isPlayingQueueRef.current = false;
     setIsListening(false);
     setIsPersonaSpeaking(false);
     setWaitingForTap(false);
@@ -223,7 +227,7 @@ export function FaceTimeInterface({
     window.speechSynthesis?.cancel();
     setIsPersonaSpeaking(true);
     setPersonaMessage(text);
-    setWaitingForTap(false); // hide tap prompt while persona speaks
+    setWaitingForTap(false);
     isProcessingRef.current = true;
     stopListening();
 
@@ -253,8 +257,6 @@ export function FaceTimeInterface({
       setIsPersonaSpeaking(false);
       setPersonaMessage('');
       isProcessingRef.current = false;
-
-      // ✅ iOS: show "Tap to speak" instead of auto-starting mic
       if (isIOSSafari()) {
         setWaitingForTap(true);
       } else {
@@ -281,6 +283,7 @@ export function FaceTimeInterface({
     handleUserSpeech(transcript);
   };
 
+  // ✅ Streaming handleUserSpeech with audio queue
   const handleUserSpeech = async (transcript: string) => {
     if (isProcessingRef.current || !transcript.trim()) return;
     isProcessingRef.current = true;
@@ -301,23 +304,117 @@ export function FaceTimeInterface({
     setConversationHistory(updatedHistory);
 
     try {
-      const response = await memoryConversationEngine.generateMemoryEnhancedResponse(personaId, transcript, updatedHistory);
-      const newHistory: Message[] = [...updatedHistory, { role: 'assistant', content: response }];
+      // ✅ Reset audio queue
+      audioQueueRef.current = [];
+      isPlayingQueueRef.current = false;
+      let fullResponse = '';
+      let firstSentencePlayed = false;
+      let accumulatedText = '';
+
+      // ✅ Play queued sentences as they arrive
+      const playNextInQueue = async () => {
+        if (isPlayingQueueRef.current) return;
+        if (audioQueueRef.current.length === 0) return;
+
+        isPlayingQueueRef.current = true;
+        const sentence = audioQueueRef.current.shift()!;
+
+        if (!firstSentencePlayed) {
+          setIsPersonaSpeaking(true);
+          firstSentencePlayed = true;
+        }
+
+        // ✅ Accumulate displayed text naturally
+        accumulatedText = accumulatedText ? accumulatedText + ' ' + sentence : sentence;
+        setPersonaMessage(accumulatedText);
+
+        try {
+          const voiceId = getVoiceId();
+          let spoke = false;
+
+          if (ELEVENLABS_API_KEY && voiceId && isSpeakerOn) {
+            spoke = await speakWithElevenLabs(sentence, voiceId);
+          }
+
+          if (!spoke && isSpeakerOn) {
+            await new Promise<void>((resolve) => {
+              window.speechSynthesis?.cancel();
+              const utterance = new SpeechSynthesisUtterance(sentence);
+              utterance.rate = 0.92;
+              utterance.pitch = 1.0;
+              utterance.volume = 1.0;
+              utterance.onend = () => resolve();
+              utterance.onerror = () => resolve();
+              window.speechSynthesis.speak(utterance);
+            });
+          } else if (!isSpeakerOn) {
+            // Speaker off — just wait proportional to sentence length
+            await new Promise(resolve => setTimeout(resolve, sentence.length * 50));
+          }
+        } catch (err) {
+          console.error('Sentence playback error:', err);
+        }
+
+        isPlayingQueueRef.current = false;
+
+        // ✅ Play next if queued
+        if (audioQueueRef.current.length > 0) {
+          await playNextInQueue();
+        }
+      };
+
+      // ✅ Called for each sentence as it streams in from OpenAI
+      const onSentence = (sentence: string) => {
+        audioQueueRef.current.push(sentence);
+        playNextInQueue(); // start playing immediately, don't await
+      };
+
+      // ✅ Stream — sentences fire to onSentence as they complete
+      fullResponse = await memoryConversationEngine.generateStreamingResponse(
+        personaId,
+        transcript,
+        updatedHistory,
+        onSentence
+      );
+
+      // ✅ Wait for all queued audio to finish playing
+      while (audioQueueRef.current.length > 0 || isPlayingQueueRef.current) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+
+      // ✅ Save full response
+      const newHistory: Message[] = [
+        ...updatedHistory,
+        { role: 'assistant', content: fullResponse }
+      ];
       setConversationHistory(newHistory);
 
       if (conversationIdRef.current) {
         await supabase.from('messages').insert({
           conversation_id: conversationIdRef.current,
           sender_type: 'persona',
-          content: response,
+          content: fullResponse,
           message_type: 'text'
         });
       }
 
-      await speakAndDisplay(response);
+      setIsPersonaSpeaking(false);
+      setPersonaMessage('');
+      isProcessingRef.current = false;
+
+      if (isIOSSafari()) {
+        setWaitingForTap(true);
+      } else {
+        setTimeout(() => startListening(), 500);
+      }
+
     } catch (error) {
       console.error('Response error:', error);
       isProcessingRef.current = false;
+      setIsPersonaSpeaking(false);
+      setPersonaMessage('');
+      audioQueueRef.current = [];
+      isPlayingQueueRef.current = false;
       if (isIOSSafari()) {
         setWaitingForTap(true);
       } else {
@@ -328,12 +425,8 @@ export function FaceTimeInterface({
 
   const startListening = () => {
     if (isProcessingRef.current) return;
-
     const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-    if (!SpeechRecognition) {
-      toast.error('Speech recognition not supported in this browser. Try Chrome.');
-      return;
-    }
+    if (!SpeechRecognition) { toast.error('Speech recognition not supported. Try Chrome.'); return; }
 
     accumulatedTranscriptRef.current = '';
     const recognition = new SpeechRecognition();
@@ -370,13 +463,8 @@ export function FaceTimeInterface({
     recognition.onerror = (event: any) => {
       if (event.error === 'no-speech') {
         if (!isProcessingRef.current) {
-          // ✅ On iOS, don't auto-restart — go back to tap prompt
-          if (isIOSSafari()) {
-            setIsListening(false);
-            setWaitingForTap(true);
-          } else {
-            setTimeout(() => startListening(), 300);
-          }
+          if (isIOSSafari()) { setIsListening(false); setWaitingForTap(true); }
+          else { setTimeout(() => startListening(), 300); }
         }
         return;
       }
@@ -391,7 +479,6 @@ export function FaceTimeInterface({
         submitAccumulatedTranscript();
         return;
       }
-      // ✅ On iOS don't auto-restart
       if (!isProcessingRef.current && !isIOSSafari()) {
         setTimeout(() => startListening(), 300);
       } else if (isIOSSafari() && !isProcessingRef.current) {
@@ -410,7 +497,6 @@ export function FaceTimeInterface({
     setIsListening(false);
   };
 
-  // ✅ The tap handler — this is the user gesture iOS requires
   const handleTapToSpeak = async () => {
     if (isPersonaSpeaking || isProcessingRef.current) return;
     try {
@@ -473,8 +559,7 @@ export function FaceTimeInterface({
                 <div key={i} className={`w-2 h-2 rounded-full transition-all duration-300 ${i < cloningAttempt ? 'bg-purple-400' : 'bg-white/20'}`} />
               ))}
             </div>
-            <button
-              onClick={() => setVoiceStatus('fallback')}
+            <button onClick={() => setVoiceStatus('fallback')}
               className="mt-2 px-5 py-2 bg-white/10 hover:bg-white/20 text-white text-sm rounded-xl transition-all">
               Continue with standard voice
             </button>
@@ -549,17 +634,12 @@ export function FaceTimeInterface({
       {/* Loading overlay */}
       {(voiceStatus === 'loading' || voiceStatus === 'cloning') && renderLoadingOverlay()}
 
-      {/* ✅ iOS "Tap to speak" overlay — appears after persona finishes talking */}
+      {/* iOS tap to speak */}
       {waitingForTap && !isPersonaSpeaking && voiceStatus !== 'loading' && voiceStatus !== 'cloning' && (
         <div className="absolute inset-0 z-20 flex items-end justify-center pb-52">
-          <button
-            onClick={handleTapToSpeak}
-            className="flex flex-col items-center gap-3 group"
-          >
+          <button onClick={handleTapToSpeak} className="flex flex-col items-center gap-3 group">
             <div className="w-20 h-20 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center border-2 border-white/40 group-active:scale-95 transition-all"
-              style={{
-                boxShadow: '0 0 0 8px rgba(255,255,255,0.08), 0 0 0 16px rgba(255,255,255,0.04)'
-              }}>
+              style={{ boxShadow: '0 0 0 8px rgba(255,255,255,0.08), 0 0 0 16px rgba(255,255,255,0.04)' }}>
               <Mic className="h-8 w-8 text-white" />
             </div>
             <span className="text-white font-semibold text-base tracking-wide">Tap to speak</span>
@@ -596,20 +676,16 @@ export function FaceTimeInterface({
       {/* Controls */}
       <div className="absolute bottom-0 left-0 right-0 z-20 pb-10 pt-6 bg-gradient-to-t from-black via-black/80 to-transparent">
         <div className="flex items-center justify-center gap-8 px-8 mb-4">
-          <button
-            onClick={() => setIsSpeakerOn(!isSpeakerOn)}
+          <button onClick={() => setIsSpeakerOn(!isSpeakerOn)}
             className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 shadow-xl ${isSpeakerOn ? 'bg-white/20 backdrop-blur' : 'bg-red-500/80'}`}>
             {isSpeakerOn ? <Volume2 className="h-6 w-6 text-white" /> : <VolumeX className="h-6 w-6 text-white" />}
           </button>
 
-          <button
-            onClick={handleEndCall}
-            disabled={callEnded}
+          <button onClick={handleEndCall} disabled={callEnded}
             className="w-20 h-20 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center shadow-2xl transition-all duration-200 hover:scale-105 disabled:opacity-50">
             <Phone className="h-8 w-8 text-white rotate-[135deg]" />
           </button>
 
-          {/* ✅ On iOS — mic button just shows state, tap-to-speak overlay handles input */}
           <button
             onClick={isIOS ? handleTapToSpeak : toggleMic}
             disabled={isPersonaSpeaking || voiceStatus === 'loading' || voiceStatus === 'cloning'}
@@ -629,7 +705,7 @@ export function FaceTimeInterface({
            voiceStatus === 'cloning' ? 'Creating voice...' :
            isPersonaSpeaking ? `${personaName} is speaking...` :
            isListening ? 'Listening — take your time' :
-           waitingForTap ? 'Tap the mic or the button above to respond' :
+           waitingForTap ? 'Tap the mic or button above to respond' :
            'Tap mic to speak'}
         </p>
       </div>
