@@ -21,17 +21,17 @@ import { RecordYourLegacy } from './components/RecordYourLegacy';
 import { ClinicalPartnerships } from './components/ClinicalPartnerships';
 import { TermsAndConditions } from './components/TermsAndConditions';
 import { BetaAdmin } from './components/BetaAdmin';
+import { Haven } from './components/Haven';
 import { initializeMonitoring, setUserContext } from './lib/monitoring';
 import { initializeAnalytics, trackPageView } from './lib/analytics';
 import { Toaster } from 'react-hot-toast';
 import { supabase } from './lib/supabase';
 import toast from 'react-hot-toast';
-import { Haven } from './components/Haven';
 
 initializeMonitoring();
 initializeAnalytics();
 
-// ✅ AZ Monogram — reusable logo mark
+// ✅ AZ Monogram
 const AlwayZLogo = ({ size = 44 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
     <defs>
@@ -89,13 +89,16 @@ function App() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [emptyPersonaNudge, setEmptyPersonaNudge] = useState<any>(null);
 
+  // ✅ Haven state
+  const [showHaven, setShowHaven] = useState(false);
+  const [havenPersona, setHavenPersona] = useState<any>(null);
+  const [havenEntryPoint, setHavenEntryPoint] = useState<'dashboard' | 'post-conversation' | 'nudge'>('dashboard');
+
   const { user, loading: authLoading, signOut, hasAgreedToTerms, checkingAgreement, markAgreedToTerms } = useAuth();
   const { personas, sharedPersonas, loading: personasLoading, refetch, deletePersona } = usePersonas();
 
   useEffect(() => {
-    if (user) {
-      setUserContext({ id: user.id, email: user.email || '', subscription: 'free' });
-    }
+    if (user) setUserContext({ id: user.id, email: user.email || '', subscription: 'free' });
   }, [user]);
 
   useEffect(() => {
@@ -107,11 +110,8 @@ function App() {
     const inviteToken = params.get('invite');
     if (inviteToken) {
       localStorage.setItem('pendingInviteToken', inviteToken);
-      if (user) {
-        setCurrentView('dashboard');
-      } else {
-        setIsAuthModalOpen(true);
-      }
+      if (user) setCurrentView('dashboard');
+      else setIsAuthModalOpen(true);
     }
   }, [user]);
 
@@ -126,9 +126,7 @@ function App() {
         .maybeSingle();
       if (error) return false;
       return !data;
-    } catch {
-      return false;
-    }
+    } catch { return false; }
   };
 
   const checkPersonaReadiness = async (persona: any): Promise<boolean> => {
@@ -138,9 +136,7 @@ function App() {
         supabase.from('persona_content').select('id').eq('persona_id', persona.id).limit(1)
       ]);
       return (memoriesResult.data?.length || 0) > 0 || (contentResult.data?.length || 0) > 0;
-    } catch {
-      return true;
-    }
+    } catch { return true; }
   };
 
   const openConversation = async (persona: any, type: 'chat' | 'video_call' | 'voice_call' = 'voice_call') => {
@@ -149,7 +145,8 @@ function App() {
     const isReady = await checkPersonaReadiness(persona);
     if (!isReady) { setEmptyPersonaNudge(persona); return; }
     const isFirst = await checkFirstConversation(persona);
-    if (isFirst) { setShowGuidedConversation(true); } else { setCurrentView('conversation'); }
+    if (isFirst) setShowGuidedConversation(true);
+    else setCurrentView('conversation');
   };
 
   const handleBackToDashboard = () => {
@@ -179,8 +176,6 @@ function App() {
     <nav className="bg-white/80 backdrop-blur-lg shadow-sm border-b border-gray-100 sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
-
-          {/* ✅ New AZ logo mark + Playfair wordmark */}
           <div className="flex items-center cursor-pointer gap-2.5" onClick={() => setCurrentView('landing')}>
             <AlwayZLogo size={40} />
             <AlwayZWordmark size={24} />
@@ -189,47 +184,41 @@ function App() {
           <div className="hidden md:flex items-center space-x-2">
             {user && (
               <>
-                <button
-                  onClick={() => setCurrentView('dashboard')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${currentView === 'dashboard' ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'}`}
-                >
+                <button onClick={() => setCurrentView('dashboard')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${currentView === 'dashboard' ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'}`}>
                   Dashboard
                 </button>
-                <button
-                  onClick={() => setCurrentView('analytics')}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${currentView === 'analytics' ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'}`}
-                >
+                <button onClick={() => setCurrentView('analytics')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${currentView === 'analytics' ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'}`}>
                   Analytics
                 </button>
-                <button
-                  onClick={() => setShowRecordYourLegacy(true)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-amber-600 hover:bg-amber-50 transition-all"
-                >
+                <button onClick={() => setShowRecordYourLegacy(true)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-amber-600 hover:bg-amber-50 transition-all">
                   <Mic className="h-4 w-4" />
                   Record My Legacy
                 </button>
-                <button
-                  onClick={() => setShowClinicalPartnerships(true)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-teal-600 hover:bg-teal-50 transition-all"
-                >
+                <button onClick={() => setShowClinicalPartnerships(true)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-teal-600 hover:bg-teal-50 transition-all">
                   <Shield className="h-4 w-4" />
                   Clinical Partners
                 </button>
+                <button
+                  onClick={() => { setHavenPersona(null); setHavenEntryPoint('dashboard'); setShowHaven(true); }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-indigo-600 hover:bg-indigo-50 transition-all">
+                  <Shield className="h-4 w-4" />
+                  Haven
+                </button>
                 {user?.email === 'phil@gomangoai.com' && (
-                  <button
-                    onClick={() => setCurrentView('beta-admin')}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${currentView === 'beta-admin' ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'}`}
-                  >
+                  <button onClick={() => setCurrentView('beta-admin')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${currentView === 'beta-admin' ? 'bg-blue-50 text-blue-600' : 'text-gray-600 hover:bg-gray-50'}`}>
                     Beta Admin
                   </button>
                 )}
               </>
             )}
             {!user && (
-              <button
-                onClick={() => setShowClinicalPartnerships(true)}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-teal-600 hover:bg-teal-50 transition-all"
-              >
+              <button onClick={() => setShowClinicalPartnerships(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-teal-600 hover:bg-teal-50 transition-all">
                 <Shield className="h-4 w-4" />
                 For Clinicians
               </button>
@@ -245,10 +234,8 @@ function App() {
                 </button>
               </div>
             ) : (
-              <button
-                onClick={() => setIsAuthModalOpen(true)}
-                className="ml-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-2.5 rounded-full text-sm font-semibold hover:shadow-lg hover:scale-105 transition-all duration-200"
-              >
+              <button onClick={() => setIsAuthModalOpen(true)}
+                className="ml-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-2.5 rounded-full text-sm font-semibold hover:shadow-lg hover:scale-105 transition-all duration-200">
                 Get Started
               </button>
             )}
@@ -268,6 +255,7 @@ function App() {
               <button onClick={() => { setCurrentView('analytics'); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-50">Analytics</button>
               <button onClick={() => { setShowRecordYourLegacy(true); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-amber-600 hover:bg-amber-50 font-medium">🎙️ Record My Legacy</button>
               <button onClick={() => { setShowClinicalPartnerships(true); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-teal-600 hover:bg-teal-50 font-medium">🏥 Clinical Partners</button>
+              <button onClick={() => { setHavenPersona(null); setHavenEntryPoint('dashboard'); setShowHaven(true); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-indigo-600 hover:bg-indigo-50 font-medium">🛡️ Haven</button>
               {user?.email === 'phil@gomangoai.com' && (
                 <button onClick={() => { setCurrentView('beta-admin'); setIsMenuOpen(false); }} className="block w-full text-left px-4 py-2 rounded-lg text-blue-600 hover:bg-blue-50 font-medium">🔐 Beta Admin</button>
               )}
@@ -287,10 +275,7 @@ function App() {
 
   const PersonaCard = ({ persona, isShared = false }: { persona: any, isShared?: boolean }) => (
     <div className="group bg-white rounded-3xl shadow-lg border border-gray-100 overflow-hidden hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1">
-      <div
-        className="aspect-[4/3] bg-gradient-to-br from-blue-500 to-purple-600 relative overflow-hidden cursor-pointer"
-        onClick={() => openConversation(persona)}
-      >
+      <div className="aspect-[4/3] bg-gradient-to-br from-blue-500 to-purple-600 relative overflow-hidden cursor-pointer" onClick={() => openConversation(persona)}>
         {persona.avatar_url ? (
           <img src={persona.avatar_url} alt={persona.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
         ) : (
@@ -308,11 +293,8 @@ function App() {
           </div>
         </div>
         {!isShared && (
-          <button
-            onClick={(e) => { e.stopPropagation(); setDeleteConfirmPersona(persona); }}
-            className="absolute top-3 right-3 w-8 h-8 bg-black/40 hover:bg-red-500/80 backdrop-blur rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200"
-            title="Delete persona"
-          >
+          <button onClick={(e) => { e.stopPropagation(); setDeleteConfirmPersona(persona); }}
+            className="absolute top-3 right-3 w-8 h-8 bg-black/40 hover:bg-red-500/80 backdrop-blur rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200">
             <Trash2 className="h-4 w-4 text-white" />
           </button>
         )}
@@ -346,6 +328,9 @@ function App() {
           <button onClick={(e) => { e.stopPropagation(); setEnrichingPersona(persona); setCurrentView('enrich-persona'); }} className="flex items-center gap-1.5 px-3 py-1.5 bg-pink-50 text-pink-600 rounded-lg text-xs font-semibold hover:bg-pink-100 transition-all">
             <BookOpen className="h-3.5 w-3.5" />Enrich
           </button>
+          <button onClick={(e) => { e.stopPropagation(); setHavenPersona(persona); setHavenEntryPoint('dashboard'); setShowHaven(true); }} className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-semibold hover:bg-indigo-100 transition-all">
+            <Shield className="h-3.5 w-3.5" />Haven
+          </button>
         </div>
       </div>
     </div>
@@ -378,8 +363,7 @@ function App() {
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-12">
               <button
                 onClick={() => user ? setCurrentView('dashboard') : setIsAuthModalOpen(true)}
-                className="group bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-4 rounded-full text-lg font-semibold hover:shadow-2xl transition-all duration-300 transform hover:scale-105 flex items-center gap-2"
-              >
+                className="group bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-4 rounded-full text-lg font-semibold hover:shadow-2xl transition-all duration-300 transform hover:scale-105 flex items-center gap-2">
                 {user ? 'Go to Dashboard' : 'Start Free Trial'}
                 <Sparkles className="h-5 w-5 group-hover:rotate-12 transition-transform" />
               </button>
@@ -466,11 +450,28 @@ function App() {
               Answer guided questions in your own voice — your wisdom, your memories, your love.
               Your family will be able to talk to an AI version of you that knows your stories and speaks in your voice.
             </p>
-            <button
-              onClick={() => user ? setShowRecordYourLegacy(true) : setIsAuthModalOpen(true)}
-              className="bg-white text-amber-600 px-8 py-4 rounded-full font-bold text-lg hover:shadow-2xl transition-all hover:scale-105"
-            >
+            <button onClick={() => user ? setShowRecordYourLegacy(true) : setIsAuthModalOpen(true)}
+              className="bg-white text-amber-600 px-8 py-4 rounded-full font-bold text-lg hover:shadow-2xl transition-all hover:scale-105">
               {user ? 'Record My Legacy' : 'Get Started'}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-indigo-50 to-purple-50">
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-3xl p-10 text-white text-center shadow-2xl">
+            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Shield className="h-8 w-8 text-white" />
+            </div>
+            <h2 className="text-3xl md:text-4xl font-bold mb-4">Haven — Your Private Space</h2>
+            <p className="text-white/80 mb-8 leading-relaxed max-w-2xl mx-auto">
+              Not ready to talk to them yet? Haven is a private, neutral space just for you —
+              to process your feelings, vent, reflect, or just breathe. Nothing leaves Haven.
+            </p>
+            <button onClick={() => user ? (setShowHaven(true)) : setIsAuthModalOpen(true)}
+              className="bg-white text-indigo-600 px-8 py-4 rounded-full font-bold text-lg hover:shadow-2xl transition-all hover:scale-105">
+              {user ? 'Open Haven' : 'Get Started'}
             </button>
           </div>
         </div>
@@ -486,7 +487,8 @@ function App() {
             <p className="text-white/80 mb-8 leading-relaxed max-w-2xl mx-auto">
               Support your clients between sessions. AlwayZ gives grieving families a therapeutic bridge — available 24/7, clinically informed, and ethically designed to support healing.
             </p>
-            <button onClick={() => setShowClinicalPartnerships(true)} className="bg-white text-teal-600 px-8 py-4 rounded-full font-bold text-lg hover:shadow-2xl transition-all hover:scale-105">
+            <button onClick={() => setShowClinicalPartnerships(true)}
+              className="bg-white text-teal-600 px-8 py-4 rounded-full font-bold text-lg hover:shadow-2xl transition-all hover:scale-105">
               Explore Clinical Partnerships
             </button>
           </div>
@@ -508,10 +510,8 @@ function App() {
         <div className="max-w-4xl mx-auto text-center">
           <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">Ready to Preserve Their Memory?</h2>
           <p className="text-xl text-gray-600 mb-10">Join thousands who are keeping their loved ones' memories alive</p>
-          <button
-            onClick={() => user ? setCurrentView('dashboard') : setIsAuthModalOpen(true)}
-            className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-10 py-5 rounded-full text-lg font-bold hover:shadow-2xl transition-all duration-300 transform hover:scale-105"
-          >
+          <button onClick={() => user ? setCurrentView('dashboard') : setIsAuthModalOpen(true)}
+            className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-10 py-5 rounded-full text-lg font-bold hover:shadow-2xl transition-all duration-300 transform hover:scale-105">
             {user ? 'Create Your First Persona' : 'Start Free Trial'}
           </button>
         </div>
@@ -547,12 +547,20 @@ function App() {
               <p className="text-lg text-gray-600">Connect with AI recreations of your loved ones</p>
             </div>
             <div className="flex items-center gap-3">
-              <button onClick={() => setShowRecordYourLegacy(true)} className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl font-semibold text-sm hover:shadow-lg transition-all">
+              <button
+                onClick={() => { setHavenPersona(null); setHavenEntryPoint('dashboard'); setShowHaven(true); }}
+                className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-semibold text-sm hover:shadow-lg transition-all">
+                <Shield className="h-4 w-4" />
+                Haven
+              </button>
+              <button onClick={() => setShowRecordYourLegacy(true)}
+                className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl font-semibold text-sm hover:shadow-lg transition-all">
                 <Mic className="h-4 w-4" />
                 Record My Legacy
               </button>
               {allPersonas.length > 0 && (
-                <button onClick={() => setCurrentView('create-persona')} className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition-all transform hover:scale-105">
+                <button onClick={() => setCurrentView('create-persona')}
+                  className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition-all transform hover:scale-105">
                   <Plus className="h-5 w-5" />
                   New Persona
                 </button>
@@ -570,11 +578,13 @@ function App() {
                 Begin your journey by creating an AI persona. Upload memories, voice recordings, and messages to bring their personality to life.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                <button onClick={() => setCurrentView('create-persona')} className="inline-flex items-center gap-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-10 py-5 rounded-full text-lg font-semibold hover:shadow-2xl transition-all duration-300 transform hover:scale-105">
+                <button onClick={() => setCurrentView('create-persona')}
+                  className="inline-flex items-center gap-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-10 py-5 rounded-full text-lg font-semibold hover:shadow-2xl transition-all duration-300 transform hover:scale-105">
                   <Plus className="h-6 w-6" />
                   Create a Persona
                 </button>
-                <button onClick={() => setShowRecordYourLegacy(true)} className="inline-flex items-center gap-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white px-10 py-5 rounded-full text-lg font-semibold hover:shadow-2xl transition-all duration-300 transform hover:scale-105">
+                <button onClick={() => setShowRecordYourLegacy(true)}
+                  className="inline-flex items-center gap-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white px-10 py-5 rounded-full text-lg font-semibold hover:shadow-2xl transition-all duration-300 transform hover:scale-105">
                   <Mic className="h-6 w-6" />
                   Record My Legacy
                 </button>
@@ -589,10 +599,8 @@ function App() {
                     {personas.map((persona: any) => (
                       <PersonaCard key={persona.id} persona={persona} isShared={false} />
                     ))}
-                    <button
-                      onClick={() => setCurrentView('create-persona')}
-                      className="group bg-white rounded-3xl shadow-lg border-2 border-dashed border-gray-300 p-12 hover:border-blue-500 hover:shadow-2xl transition-all duration-300 hover:bg-gradient-to-br hover:from-blue-50 hover:to-purple-50 transform hover:-translate-y-1 flex flex-col items-center justify-center min-h-[320px]"
-                    >
+                    <button onClick={() => setCurrentView('create-persona')}
+                      className="group bg-white rounded-3xl shadow-lg border-2 border-dashed border-gray-300 p-12 hover:border-blue-500 hover:shadow-2xl transition-all duration-300 hover:bg-gradient-to-br hover:from-blue-50 hover:to-purple-50 transform hover:-translate-y-1 flex flex-col items-center justify-center min-h-[320px]">
                       <div className="w-16 h-16 bg-gradient-to-br from-blue-100 to-purple-100 group-hover:from-blue-500 group-hover:to-purple-600 rounded-full flex items-center justify-center mb-4 transition-all">
                         <Plus className="h-8 w-8 text-blue-600 group-hover:text-white transition-colors" />
                       </div>
@@ -634,9 +642,7 @@ function App() {
         } else {
           setCurrentView('dashboard');
         }
-      } catch {
-        setCurrentView('dashboard');
-      }
+      } catch { setCurrentView('dashboard'); }
     };
 
     return (
@@ -665,7 +671,8 @@ function App() {
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Enrich {enrichingPersona.name}'s Memories</h1>
             <p className="text-gray-600">Add personality traits, stories, and online presence to deepen their AI persona</p>
           </div>
-          <PersonaTraining personaId={enrichingPersona.id} startAtMemories={true} onComplete={() => { setEnrichingPersona(null); setCurrentView('dashboard'); }} />
+          <PersonaTraining personaId={enrichingPersona.id} startAtMemories={true}
+            onComplete={() => { setEnrichingPersona(null); setCurrentView('dashboard'); }} />
         </div>
       </div>
     );
@@ -674,6 +681,7 @@ function App() {
   const ConversationView = () => {
     if (!selectedPersona) { setCurrentView('dashboard'); return null; }
     const isShared = selectedPersona.isShared;
+
     return (
       <div className="min-h-screen bg-gray-50">
         <Navigation />
@@ -698,44 +706,62 @@ function App() {
                   </div>
                 </div>
               </div>
+
               <div className="flex items-center gap-2 flex-wrap justify-end">
-                <button onClick={() => { setEnrichingPersona(selectedPersona); setCurrentView('enrich-persona'); }} className="flex items-center gap-2 px-4 py-2 bg-pink-50 text-pink-600 rounded-xl font-semibold text-sm hover:bg-pink-100 transition-all">
+                <button onClick={() => { setEnrichingPersona(selectedPersona); setCurrentView('enrich-persona'); }}
+                  className="flex items-center gap-2 px-4 py-2 bg-pink-50 text-pink-600 rounded-xl font-semibold text-sm hover:bg-pink-100 transition-all">
                   <BookOpen className="h-4 w-4" />Add Memories
                 </button>
-                <button onClick={() => setSurprisePersona(selectedPersona)} className="flex items-center gap-2 px-4 py-2 bg-purple-50 text-purple-600 rounded-xl font-semibold text-sm hover:bg-purple-100 transition-all">
+                <button onClick={() => setSurprisePersona(selectedPersona)}
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-50 text-purple-600 rounded-xl font-semibold text-sm hover:bg-purple-100 transition-all">
                   <Sparkles className="h-4 w-4" />Surprise
                 </button>
-                <button onClick={() => setVoiceNotePersona(selectedPersona)} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-semibold text-sm hover:bg-blue-100 transition-all">
+                <button onClick={() => setVoiceNotePersona(selectedPersona)}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-semibold text-sm hover:bg-blue-100 transition-all">
                   <Volume2 className="h-4 w-4" />Voice Notes
                 </button>
-                <button onClick={() => setLegacyPersona(selectedPersona)} className="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-600 rounded-xl font-semibold text-sm hover:bg-amber-100 transition-all">
+                <button onClick={() => setLegacyPersona(selectedPersona)}
+                  className="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-600 rounded-xl font-semibold text-sm hover:bg-amber-100 transition-all">
                   <Mail className="h-4 w-4" />Legacy
                 </button>
-                <button onClick={() => setShowGuidedConversation(true)} className="flex items-center gap-2 px-4 py-2 bg-slate-50 text-slate-600 rounded-xl font-semibold text-sm hover:bg-slate-100 transition-all">
+                {/* ✅ Haven post-conversation entry */}
+                <button
+                  onClick={() => { setHavenPersona(selectedPersona); setHavenEntryPoint('post-conversation'); setShowHaven(true); }}
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-semibold text-sm hover:bg-indigo-100 transition-all">
+                  <Shield className="h-4 w-4" />Haven
+                </button>
+                <button onClick={() => setShowGuidedConversation(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-50 text-slate-600 rounded-xl font-semibold text-sm hover:bg-slate-100 transition-all">
                   <Heart className="h-4 w-4" />Guide
                 </button>
                 {!isShared && (
-                  <button onClick={() => setInvitePersona(selectedPersona)} className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-600 rounded-xl font-semibold text-sm hover:bg-green-100 transition-all">
+                  <button onClick={() => setInvitePersona(selectedPersona)}
+                    className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-600 rounded-xl font-semibold text-sm hover:bg-green-100 transition-all">
                     <Users className="h-4 w-4" />Invite Family
                   </button>
                 )}
                 <div className="flex gap-2 bg-white rounded-lg p-1 shadow-sm">
-                  <button onClick={() => setConversationType('chat')} className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${conversationType === 'chat' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
+                  <button onClick={() => setConversationType('chat')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${conversationType === 'chat' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
                     <MessageCircle className="h-4 w-4" /><span className="text-sm font-medium">Chat</span>
                   </button>
-                  <button onClick={() => setConversationType('voice_call')} className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${conversationType === 'voice_call' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
+                  <button onClick={() => setConversationType('voice_call')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${conversationType === 'voice_call' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
                     <Heart className="h-4 w-4" /><span className="text-sm font-medium">Voice</span>
                   </button>
-                  <button onClick={() => setConversationType('video_call')} className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${conversationType === 'video_call' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
+                  <button onClick={() => setConversationType('video_call')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-md transition-colors ${conversationType === 'video_call' ? 'bg-blue-500 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
                     <Video className="h-4 w-4" /><span className="text-sm font-medium">Video</span>
                   </button>
                 </div>
               </div>
             </div>
           </div>
+
           <div className="grid lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
-              <ConversationInterface persona={selectedPersona} conversationType={conversationType} onEndCall={() => setConversationType('chat')} onBackToDashboard={handleBackToDashboard} />
+              <ConversationInterface persona={selectedPersona} conversationType={conversationType}
+                onEndCall={() => setConversationType('chat')} onBackToDashboard={handleBackToDashboard} />
             </div>
             <div className="space-y-6">
               <MemoryViewer personaId={selectedPersona.id} personaName={selectedPersona.name} />
@@ -772,7 +798,6 @@ function App() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center">
         <div className="text-center">
-          {/* ✅ New logo in loading spinner */}
           <div className="mb-4 flex justify-center">
             <AlwayZLogo size={56} />
           </div>
@@ -830,7 +855,17 @@ function App() {
             <TermsAndConditions onAccept={() => markAgreedToTerms()} />
           )}
 
-          {/* ✅ DELETE CONFIRMATION MODAL */}
+          {/* ✅ Haven */}
+          {showHaven && (
+            <Haven
+              personaId={havenPersona?.id}
+              personaName={havenPersona?.name}
+              entryPoint={havenEntryPoint}
+              onClose={() => { setShowHaven(false); setHavenPersona(null); }}
+            />
+          )}
+
+          {/* ✅ DELETE CONFIRMATION */}
           {deleteConfirmPersona && (
             <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
               <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8">
@@ -849,18 +884,22 @@ function App() {
                   </p>
                 </div>
                 <div className="flex gap-3">
-                  <button onClick={() => setDeleteConfirmPersona(null)} disabled={isDeleting} className="flex-1 px-6 py-3 border border-gray-200 rounded-xl font-semibold text-gray-700 hover:bg-gray-50 transition-all disabled:opacity-40">
+                  <button onClick={() => setDeleteConfirmPersona(null)} disabled={isDeleting}
+                    className="flex-1 px-6 py-3 border border-gray-200 rounded-xl font-semibold text-gray-700 hover:bg-gray-50 transition-all disabled:opacity-40">
                     Cancel
                   </button>
-                  <button onClick={() => handleDeletePersona(deleteConfirmPersona)} disabled={isDeleting} className="flex-1 px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold transition-all disabled:opacity-40 flex items-center justify-center gap-2">
-                    {isDeleting ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />Deleting...</> : <><Trash2 className="h-4 w-4" />Delete Forever</>}
+                  <button onClick={() => handleDeletePersona(deleteConfirmPersona)} disabled={isDeleting}
+                    className="flex-1 px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold transition-all disabled:opacity-40 flex items-center justify-center gap-2">
+                    {isDeleting
+                      ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />Deleting...</>
+                      : <><Trash2 className="h-4 w-4" />Delete Forever</>}
                   </button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* ✅ EMPTY PERSONA NUDGE MODAL */}
+          {/* ✅ EMPTY PERSONA NUDGE */}
           {emptyPersonaNudge && (
             <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
               <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8">
@@ -892,6 +931,19 @@ function App() {
                       <p className="text-xs text-purple-600">A story, a phrase, something they loved</p>
                     </div>
                   </div>
+                  {/* ✅ Haven nudge entry point */}
+                  <div
+                    className="flex items-center gap-3 p-3 bg-indigo-50 rounded-xl cursor-pointer hover:bg-indigo-100 transition-all"
+                    onClick={() => { setEmptyPersonaNudge(null); setHavenPersona(emptyPersonaNudge); setHavenEntryPoint('nudge'); setShowHaven(true); }}
+                  >
+                    <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
+                      <Shield className="h-4 w-4 text-indigo-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-indigo-900">Not ready yet? Try Haven</p>
+                      <p className="text-xs text-indigo-600">A private space just to process how you're feeling</p>
+                    </div>
+                  </div>
                 </div>
                 <div className="flex gap-3">
                   <button
@@ -904,7 +956,8 @@ function App() {
                       const persona = emptyPersonaNudge;
                       setEmptyPersonaNudge(null);
                       const isFirst = await checkFirstConversation(persona);
-                      if (isFirst) { setShowGuidedConversation(true); } else { setCurrentView('conversation'); }
+                      if (isFirst) setShowGuidedConversation(true);
+                      else setCurrentView('conversation');
                     }}
                     className="flex-1 px-6 py-3 border border-gray-200 rounded-xl font-semibold text-gray-600 hover:bg-gray-50 transition-all text-sm">
                     Talk Anyway
