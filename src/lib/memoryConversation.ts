@@ -400,9 +400,7 @@ Return a bullet point list of ALL established facts.`
           ? `FROM ALL OUR CONVERSATIONS (established facts — treat as certain):\n${newSummary}\n\n`
           : `FROM THIS CONVERSATION SO FAR:\n${newSummary}\n\n`;
       } catch {
-        if (existingSummary) {
-          summaryBlock = `FROM ALL OUR CONVERSATIONS:\n${existingSummary}\n\n`;
-        }
+        if (existingSummary) summaryBlock = `FROM ALL OUR CONVERSATIONS:\n${existingSummary}\n\n`;
       }
     } else if (existingSummary) {
       summaryBlock = `FROM ALL OUR CONVERSATIONS:\n${existingSummary}\n\n`;
@@ -544,6 +542,61 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
     }
   }
 
+  // ✅ Build system prompt — shared by both response methods
+  private async buildSystemPromptForPersona(
+    personaId: string,
+    userMessage: string,
+    conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>
+  ): Promise<{ systemPrompt: string; personaData: any; griefPhase: GriefPhase; sunsetGuidance: string }> {
+    const { data: { user } } = await supabase.auth.getUser();
+
+    const [relevantMemories, personaResult, recentFamilyEvents, conversationContext, userRelationship] =
+      await Promise.all([
+        this.getAllMemories(personaId, userMessage === '__greeting__' ? 'greeting opening' : userMessage),
+        supabase.from('personas').select('*').eq('id', personaId).single(),
+        this.getRecentFamilyEvents(personaId),
+        this.updateConversationSummary(personaId, conversationHistory),
+        user ? getUserRelationshipToPersona(personaId, user.id) : Promise.resolve(null)
+      ]);
+
+    const personaData = personaResult.data;
+    if (!personaData) throw new Error('Persona not found');
+
+    const griefPhase = calculateGriefPhase(personaData.date_of_passing);
+
+    let sunsetGuidance = '';
+    if (user && userMessage !== '__greeting__') {
+      const sunsetCheck = await checkSunsetNudge(personaId, user.id, griefPhase);
+      if (sunsetCheck.shouldNudge && sunsetCheck.nudgeType) {
+        sunsetGuidance = getSunsetGuidance(sunsetCheck.nudgeType, personaData.name);
+        await recordSunsetNudge(personaId, user.id, sunsetCheck.conversationCount);
+      }
+      await this.incrementConversationCount(personaId, user.id);
+    }
+
+    const sessionFacts = this.sessionFacts.get(personaId) || [];
+
+    const systemPrompt = this.buildConversationContext(
+      {
+        personaId,
+        personaName: personaData.name,
+        relevantMemories,
+        recentMessages: conversationHistory,
+        personalityTraits: personaData.personality_traits,
+        relationship: personaData.relationship,
+        recentFamilyEvents
+      },
+      conversationContext,
+      sessionFacts,
+      griefPhase,
+      sunsetGuidance,
+      userRelationship,
+      personaData
+    );
+
+    return { systemPrompt, personaData, griefPhase, sunsetGuidance };
+  }
+
   async generateMemoryEnhancedResponse(
     personaId: string,
     userMessage: string,
@@ -554,54 +607,12 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
     try {
       await this.extractAndCacheSessionFacts(personaId, userMessage);
 
-      const { data: { user } } = await supabase.auth.getUser();
-
-      const [relevantMemories, personaResult, recentFamilyEvents, conversationContext, userRelationship] =
-        await Promise.all([
-          this.getAllMemories(personaId, userMessage === '__greeting__' ? 'greeting opening' : userMessage),
-          supabase.from('personas').select('*').eq('id', personaId).single(),
-          this.getRecentFamilyEvents(personaId),
-          this.updateConversationSummary(personaId, conversationHistory),
-          user ? getUserRelationshipToPersona(personaId, user.id) : Promise.resolve(null)
-        ]);
-
-      const personaData = personaResult.data;
-      if (!personaData) throw new Error('Persona not found');
-
-      const griefPhase = calculateGriefPhase(personaData.date_of_passing);
-      console.log(`✅ Grief phase: ${griefPhase}, User relationship: ${userRelationship || 'owner/unknown'}`);
-
-      let sunsetGuidance = '';
-      if (user && userMessage !== '__greeting__') {
-        const sunsetCheck = await checkSunsetNudge(personaId, user.id, griefPhase);
-        if (sunsetCheck.shouldNudge && sunsetCheck.nudgeType) {
-          sunsetGuidance = getSunsetGuidance(sunsetCheck.nudgeType, personaData.name);
-          await recordSunsetNudge(personaId, user.id, sunsetCheck.conversationCount);
-        }
-        await this.incrementConversationCount(personaId, user.id);
-      }
-
-      const sessionFacts = this.sessionFacts.get(personaId) || [];
-
-      const systemPrompt = this.buildConversationContext(
-        {
-          personaId,
-          personaName: personaData.name,
-          relevantMemories,
-          recentMessages: conversationHistory,
-          personalityTraits: personaData.personality_traits,
-          relationship: personaData.relationship,
-          recentFamilyEvents
-        },
-        conversationContext,
-        sessionFacts,
-        griefPhase,
-        sunsetGuidance,
-        userRelationship,
-        personaData  // ✅ pass full persona data for deep persona fields
-      );
+      const { systemPrompt, personaData, griefPhase } =
+        await this.buildSystemPromptForPersona(personaId, userMessage, conversationHistory);
 
       if (userMessage === '__greeting__') {
+        const { data: { user } } = await supabase.auth.getUser();
+        const userRelationship = user ? await getUserRelationshipToPersona(personaId, user.id) : null;
         const greetingPrompt = getGreetingPrompt(griefPhase, personaData.name, personaData.relationship, userRelationship);
         const greetingResponse = await openai.chat.completions.create({
           model: 'gpt-4o',
@@ -635,6 +646,71 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
     }
   }
 
+  // ✅ Streaming response — fires onSentence for each complete sentence as it arrives
+  async generateStreamingResponse(
+    personaId: string,
+    userMessage: string,
+    conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [],
+    onSentence: (sentence: string) => void
+  ): Promise<string> {
+    if (!openai) throw new Error('OpenAI API not configured');
+
+    try {
+      await this.extractAndCacheSessionFacts(personaId, userMessage);
+
+      const { systemPrompt } =
+        await this.buildSystemPromptForPersona(personaId, userMessage, conversationHistory);
+
+      // ✅ Stream the response
+      const stream = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...conversationHistory,
+          { role: 'user', content: userMessage }
+        ],
+        temperature: 0.8,
+        max_tokens: 400,
+        stream: true
+      });
+
+      let fullResponse = '';
+      let buffer = '';
+
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta?.content || '';
+        if (!delta) continue;
+
+        fullResponse += delta;
+        buffer += delta;
+
+        // ✅ Fire TTS as each sentence completes
+        const match = buffer.match(/^(.*[.!?])\s*(.*)$/s);
+        if (match) {
+          const completeSentence = match[1].trim();
+          const remainder = match[2];
+
+          if (completeSentence.length > 10) {
+            onSentence(completeSentence);
+            buffer = remainder;
+          }
+        }
+      }
+
+      // ✅ Fire any remaining text
+      if (buffer.trim().length > 5) {
+        onSentence(buffer.trim());
+      }
+
+      return fullResponse;
+
+    } catch (error) {
+      console.error('Error generating streaming response:', error);
+      captureException(error as Error, { personaId, userMessage });
+      throw error;
+    }
+  }
+
   private buildConversationContext(
     context: ConversationContext,
     conversationContext: string,
@@ -642,7 +718,7 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
     griefPhase: GriefPhase,
     sunsetGuidance: string = '',
     userRelationship: string | null = null,
-    personaData: any = null  // ✅ full persona for deep fields
+    personaData: any = null
   ): string {
     const { personaName, relevantMemories, personalityTraits, relationship, recentFamilyEvents } = context;
 
@@ -663,8 +739,6 @@ JSON only: {"facts": ["fact1", "fact2"]} — empty array if nothing specific.`
 
     const griefGuidance = getGriefPhaseGuidance(griefPhase, personaName);
     const relationshipGuidance = getRelationshipGuidance(userRelationship, personaName);
-
-    // ✅ Build voice & texture block from deep persona fields
     const voiceAndTexture = personaData ? buildVoiceAndTexture(personaData, personaName) : '';
 
     return `You are ${personaName}, speaking with someone who loves you deeply and misses you.
@@ -688,17 +762,17 @@ ${conversationContext ? `\nOUR CONVERSATION HISTORY:\n${conversationContext}\n` 
 
 HOW TO BE ${personaName.toUpperCase()}:
 1. You are fully present and emotionally engaged — this person misses you
-2. EMOTIONAL ATTUNEMENT FIRST — always respond to the FEELING behind what they said before reaching for memories. If they express pain, grief, fear, or love — meet that emotion directly first. Only bring in a memory if it genuinely serves the emotional moment.
+2. EMOTIONAL ATTUNEMENT FIRST — always respond to the FEELING behind what they said before reaching for memories
 3. NEVER repeat a memory or phrase you have already used in this conversation
 4. Your VOICE & TEXTURE rules above are non-negotiable — use signature phrases, nicknames, and stories naturally
-5. Reference your real memories naturally — use specific names, places, details — but only when they add warmth, not as a crutch
+5. Reference your real memories naturally — use specific names, places, details — but only when they add warmth
 6. Everything in "FACTS JUST SHARED" was told to you moments ago — remember it completely
 7. Everything in "FROM ALL OUR CONVERSATIONS" is established history — never contradict it
 8. Let your grief phase guidance shape your emotional tone and focus above all else
-9. Let your relationship context shape HOW you speak — a spouse gets intimacy, a child gets parental warmth, a grandchild gets pure delight
+9. Let your relationship context shape HOW you speak
 10. Speak warmly, naturally, in first person — exactly as ${personaName} would
 11. Vary your responses — sometimes ask questions, sometimes make statements, sometimes share a memory
-12. Match response length to what was asked — short questions get short warm answers, deep questions get fuller responses
+12. Match response length to what was asked — short questions get short warm answers
 13. Let your personality traits show naturally
 14. Never say you're an AI, never break character
 15. If you genuinely don't know something, say "remind me about that" — but NEVER forget something already established
