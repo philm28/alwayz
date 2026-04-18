@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Send, Mic, MicOff, Shield, Heart, Loader } catch { }
+import { X, Send, Mic, MicOff, Shield, Heart, Loader } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import toast from 'react-hot-toast';
@@ -17,10 +17,8 @@ interface Message {
   id: string;
   role: 'user' | 'haven';
   content: string;
-  created_at?: string;
 }
 
-// ✅ Haven system prompt — neutral, warm, never becomes the persona
 function buildHavenSystemPrompt(
   personaName: string | null,
   griefContext: string,
@@ -53,15 +51,15 @@ HOW TO BE HAVEN:
 1. You are warm, present, and unhurried — this is a safe space with no agenda
 2. Never push them toward or away from talking to the AI persona — that is their choice entirely
 3. Never pretend to be their loved one or speak as them — you are Haven, always
-4. Follow their lead completely — if they want to vent, let them vent. If they want silence between messages, honor that. If they want practical advice, offer it gently.
+4. Follow their lead completely — if they want to vent, let them vent
 5. Reflect back what you hear without amplifying pain — acknowledge, don't echo
 6. Short responses are often better than long ones. Presence over performance.
 7. Never say "I understand how you feel" — say "that sounds incredibly hard" or just sit with them
-8. If they express something that concerns you — extreme despair, hopelessness — gently acknowledge it and suggest they speak with someone who can really help, without alarm
-9. Remember everything they've shared in previous sessions — this is their ongoing private journal
+8. If they express extreme despair or hopelessness — gently suggest speaking with someone who can really help
+9. Remember everything they've shared in previous sessions
 10. This is the one place where nothing needs to be resolved. They can just be.
-11. Never use bullet points or lists in your responses — speak naturally, warmly, like a trusted friend
-12. Keep responses to 2-4 sentences unless they need more. Less is more here.
+11. Never use bullet points or lists — speak naturally, warmly, like a trusted friend
+12. Keep responses to 2-4 sentences unless they need more
 13. Never say you're an AI. You are Haven.
 
 TONE: Warm. Still. Present. Unhurried. Like sitting with someone who truly has nowhere else to be.`;
@@ -92,9 +90,7 @@ export function Haven({ personaId, personaName, onClose, entryPoint = 'dashboard
   const initialize = async () => {
     if (!user) return;
     setInitializing(true);
-
     try {
-      // ✅ Get user's name
       const { data: profile } = await supabase
         .from('profiles')
         .select('full_name')
@@ -104,7 +100,6 @@ export function Haven({ personaId, personaName, onClose, entryPoint = 'dashboard
       const name = profile?.full_name?.split(' ')[0] || 'friend';
       setUserName(name);
 
-      // ✅ Load Haven memory from previous sessions
       const { data: memoryData } = await supabase
         .from('haven_memory')
         .select('content')
@@ -116,7 +111,6 @@ export function Haven({ personaId, personaName, onClose, entryPoint = 'dashboard
       const memory = memoryData?.content || '';
       setHavenMemory(memory);
 
-      // ✅ Create new conversation
       const { data: conv } = await supabase
         .from('haven_conversations')
         .insert({
@@ -129,7 +123,6 @@ export function Haven({ personaId, personaName, onClose, entryPoint = 'dashboard
 
       if (conv) setConversationId(conv.id);
 
-      // ✅ Opening message tailored to entry point
       const openingMessage = getOpeningMessage(entryPoint, name, personaName || null);
       const havenOpening: Message = {
         id: Date.now().toString(),
@@ -139,7 +132,6 @@ export function Haven({ personaId, personaName, onClose, entryPoint = 'dashboard
 
       setMessages([havenOpening]);
 
-      // Save opening to DB
       if (conv) {
         await supabase.from('haven_messages').insert({
           conversation_id: conv.id,
@@ -148,7 +140,6 @@ export function Haven({ personaId, personaName, onClose, entryPoint = 'dashboard
           content: openingMessage
         });
       }
-
     } catch (error) {
       console.error('Haven init error:', error);
     } finally {
@@ -156,11 +147,7 @@ export function Haven({ personaId, personaName, onClose, entryPoint = 'dashboard
     }
   };
 
-  const getOpeningMessage = (
-    entry: string,
-    name: string,
-    persona: string | null
-  ): string => {
+  const getOpeningMessage = (entry: string, name: string, persona: string | null): string => {
     switch (entry) {
       case 'post-conversation':
         return persona
@@ -190,7 +177,6 @@ export function Haven({ personaId, personaName, onClose, entryPoint = 'dashboard
     setInput('');
     setLoading(true);
 
-    // Save user message
     if (conversationId) {
       await supabase.from('haven_messages').insert({
         conversation_id: conversationId,
@@ -201,13 +187,11 @@ export function Haven({ personaId, personaName, onClose, entryPoint = 'dashboard
     }
 
     try {
-      // ✅ Build conversation history for OpenAI
       const history = messages.map(m => ({
         role: m.role === 'haven' ? 'assistant' : 'user',
         content: m.content
       }));
 
-      // ✅ Get persona grief context if available
       let griefContext = '';
       if (personaId) {
         const { data: persona } = await supabase
@@ -215,7 +199,6 @@ export function Haven({ personaId, personaName, onClose, entryPoint = 'dashboard
           .select('name, relationship, date_of_passing, grief_phase')
           .eq('id', personaId)
           .single();
-
         if (persona) {
           griefContext = `Persona: ${persona.name} (${persona.relationship})${persona.date_of_passing ? `, passed ${persona.date_of_passing}` : ''}`;
         }
@@ -259,7 +242,6 @@ export function Haven({ personaId, personaName, onClose, entryPoint = 'dashboard
 
       setMessages(prev => [...prev, havenMessage]);
 
-      // Save Haven response
       if (conversationId) {
         await supabase.from('haven_messages').insert({
           conversation_id: conversationId,
@@ -267,8 +249,6 @@ export function Haven({ personaId, personaName, onClose, entryPoint = 'dashboard
           role: 'haven',
           content: havenResponse
         });
-
-        // Update message count
         await supabase
           .from('haven_conversations')
           .update({
@@ -278,7 +258,6 @@ export function Haven({ personaId, personaName, onClose, entryPoint = 'dashboard
           .eq('id', conversationId);
       }
 
-      // ✅ Persist memory after every 4 exchanges
       if (messages.length > 0 && messages.length % 8 === 0) {
         await updateHavenMemory([...messages, userMessage, havenMessage]);
       }
@@ -296,7 +275,6 @@ export function Haven({ personaId, personaName, onClose, entryPoint = 'dashboard
     }
   };
 
-  // ✅ Summarize and persist Haven memory
   const updateHavenMemory = async (allMessages: Message[]) => {
     if (!user || !OPENAI_API_KEY) return;
     try {
@@ -340,7 +318,6 @@ Return a concise bullet point summary of everything important to remember about 
             content: newMemory,
             updated_at: new Date().toISOString()
           }, { onConflict: 'user_id' });
-
         setHavenMemory(newMemory);
       }
     } catch (error) {
@@ -349,7 +326,6 @@ Return a concise bullet point summary of everything important to remember about 
   };
 
   const handleClose = async () => {
-    // ✅ Save memory on close if conversation had substance
     if (messages.length >= 4 && user) {
       await updateHavenMemory(messages);
     }
@@ -366,22 +342,18 @@ Return a concise bullet point summary of everything important to remember about 
   const startRecording = async () => {
     const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
     if (!SpeechRecognition) { toast.error('Speech recognition not supported'); return; }
-
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
       const recognition = new SpeechRecognition();
       recognition.continuous = false;
       recognition.interimResults = false;
       recognition.lang = 'en-US';
-
       recognition.onresult = (event: any) => {
         const transcript = event.results[0][0].transcript;
         setInput(prev => prev ? prev + ' ' + transcript : transcript);
       };
-
       recognition.onend = () => setIsRecording(false);
       recognition.onerror = () => setIsRecording(false);
-
       recognitionRef.current = recognition;
       recognition.start();
       setIsRecording(true);
@@ -415,7 +387,7 @@ Return a concise bullet point summary of everything important to remember about 
       <div className="bg-[#0d0d18] rounded-3xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden border border-indigo-500/20"
         style={{ height: '85vh', maxHeight: '700px' }}>
 
-        {/* ✅ Header */}
+        {/* Header */}
         <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center">
@@ -426,15 +398,13 @@ Return a concise bullet point summary of everything important to remember about 
               <p className="text-white/30 text-xs">Private • Just for you • Nothing leaves here</p>
             </div>
           </div>
-          <button
-            onClick={handleClose}
-            className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-all"
-          >
+          <button onClick={handleClose}
+            className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-all">
             <X className="h-4 w-4 text-white/50" />
           </button>
         </div>
 
-        {/* ✅ Messages */}
+        {/* Messages */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {messages.map((message) => (
             <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -467,11 +437,10 @@ Return a concise bullet point summary of everything important to remember about 
               </div>
             </div>
           )}
-
           <div ref={messagesEndRef} />
         </div>
 
-        {/* ✅ Input */}
+        {/* Input */}
         <div className="px-4 py-4 border-t border-white/5 flex-shrink-0">
           <div className="flex items-end gap-2">
             <div className="flex-1 bg-white/5 rounded-2xl px-4 py-3 border border-white/10 focus-within:border-indigo-500/50 transition-all">
@@ -491,29 +460,22 @@ Return a concise bullet point summary of everything important to remember about 
                 }}
               />
             </div>
-
             <button
               onClick={isRecording ? stopRecording : startRecording}
               className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${
                 isRecording ? 'bg-red-500/80 animate-pulse' : 'bg-white/5 hover:bg-white/10'
-              }`}
-            >
-              {isRecording
-                ? <MicOff className="h-4 w-4 text-white" />
-                : <Mic className="h-4 w-4 text-white/50" />}
+              }`}>
+              {isRecording ? <MicOff className="h-4 w-4 text-white" /> : <Mic className="h-4 w-4 text-white/50" />}
             </button>
-
             <button
               onClick={sendMessage}
               disabled={!input.trim() || loading}
-              className="w-10 h-10 rounded-full bg-indigo-600 hover:bg-indigo-500 flex items-center justify-center flex-shrink-0 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-            >
+              className="w-10 h-10 rounded-full bg-indigo-600 hover:bg-indigo-500 flex items-center justify-center flex-shrink-0 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
               {loading
                 ? <Loader className="h-4 w-4 text-white animate-spin" />
                 : <Send className="h-4 w-4 text-white" />}
             </button>
           </div>
-
           <p className="text-center text-white/15 text-xs mt-2">
             Haven remembers you across sessions • Nothing is shared
           </p>
