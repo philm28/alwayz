@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import toast from 'react-hot-toast';
 import { FileUpload } from './FileUpload';
+import PersonaScraper, { PersonaSignals } from './PersonaScraper'; // ← ADDED
 
 interface PersonaTrainingProps {
   personaId?: string;
@@ -86,9 +87,6 @@ export function PersonaTraining({
   const [newMemoryText, setNewMemoryText] = useState('');
   const [newMemoryType, setNewMemoryType] = useState<Memory['type']>('story');
   const [isRecordingMemory, setIsRecordingMemory] = useState(false);
-  const [urlInput, setUrlInput] = useState('');
-  const [isFetchingUrl, setIsFetchingUrl] = useState(false);
-  const [fetchedUrlContent, setFetchedUrlContent] = useState<string | null>(null);
   const memoryRecorderRef = useRef<MediaRecorder | null>(null);
   const memoryChunksRef = useRef<Blob[]>([]);
 
@@ -126,7 +124,6 @@ export function PersonaTraining({
               setSelectedTraits(traits.filter((t: string) => TRAIT_OPTIONS.includes(t)));
               setSelectedStyles(traits.filter((t: string) => SPEAKING_STYLES.includes(t)));
             }
-            // ✅ Load existing deep persona data
             if (data.signature_phrases) setSignaturePhrases(data.signature_phrases);
             if (data.story_anchors) setStoryAnchors(data.story_anchors);
             if (data.emotional_patterns) setEmotionalPatterns(data.emotional_patterns);
@@ -215,7 +212,139 @@ export function PersonaTraining({
     if (error) console.error('Error saving memory:', error);
   }, [personaId]);
 
-  // ✅ Save all deep persona fields to DB
+  // ✅ Handler that receives extracted signals from PersonaScraper
+  // and merges them into the existing form state + saves to Supabase
+  const applyScrapedSignals = useCallback(async (signals: PersonaSignals) => {
+    // --- Personality traits ---
+    const newTraits = (signals.personality_traits || []).filter(
+      t => TRAIT_OPTIONS.includes(t) && !selectedTraits.includes(t)
+    );
+    if (newTraits.length > 0) {
+      const merged = [...selectedTraits, ...newTraits];
+      setSelectedTraits(merged);
+      await saveTraitsToDb(merged, selectedStyles);
+    }
+
+    // --- Speaking style inference ---
+    if (signals.speaking_style && !signaturePhrases) {
+      setSignaturePhrases(signals.speaking_style);
+    }
+
+    // --- Signature phrases / sayings ---
+    if (signals.favorite_sayings?.length > 0) {
+      const sayingsText = signals.favorite_sayings.join('\n');
+      setSignaturePhrases(prev =>
+        prev ? `${prev}\n${sayingsText}` : sayingsText
+      );
+    }
+
+    // --- Story anchors ---
+    if (signals.life_stories?.length > 0) {
+      const storiesText = signals.life_stories.join('\n\n');
+      setStoryAnchors(prev =>
+        prev ? `${prev}\n\n${storiesText}` : storiesText
+      );
+    }
+
+    // --- Values ---
+    if (signals.values?.length > 0) {
+      const valuesText = signals.values.join('. ');
+      setValuesBeliefs(prev =>
+        prev ? `${prev}\n${valuesText}` : valuesText
+      );
+    }
+
+    // --- Career identity → emotional patterns field ---
+    if (signals.career_identity) {
+      setEmotionalPatterns(prev =>
+        prev ? `${prev}\nCareer: ${signals.career_identity}` : `Career: ${signals.career_identity}`
+      );
+    }
+
+    // --- Humor style → emotional patterns ---
+    if (signals.humor_style) {
+      setEmotionalPatterns(prev =>
+        prev ? `${prev}\nHumor: ${signals.humor_style}` : `Humor: ${signals.humor_style}`
+      );
+    }
+
+    // --- Save everything to Supabase as high-importance memories ---
+    if (!personaId) return;
+
+    const memoriesToSave: { content: string; memory_type: string; source_type: string; importance: number }[] = [];
+
+    if (signals.personality_traits?.length > 0) {
+      memoriesToSave.push({
+        content: `Personality traits: ${signals.personality_traits.join(', ')}`,
+        memory_type: 'trait',
+        source_type: 'web_import',
+        importance: 0.9
+      });
+    }
+    if (signals.favorite_sayings?.length > 0) {
+      memoriesToSave.push({
+        content: `Signature phrases and sayings: ${signals.favorite_sayings.join(' | ')}`,
+        memory_type: 'signature',
+        source_type: 'web_import',
+        importance: 0.98
+      });
+    }
+    if (signals.topics_they_loved?.length > 0) {
+      memoriesToSave.push({
+        content: `Topics and interests: ${signals.topics_they_loved.join(', ')}`,
+        memory_type: 'interest',
+        source_type: 'web_import',
+        importance: 0.9
+      });
+    }
+    if (signals.people_they_loved?.length > 0) {
+      memoriesToSave.push({
+        content: `People they loved: ${signals.people_they_loved.join(', ')}`,
+        memory_type: 'relationship',
+        source_type: 'web_import',
+        importance: 0.95
+      });
+    }
+    signals.life_stories?.forEach(story => {
+      memoriesToSave.push({
+        content: story,
+        memory_type: 'story',
+        source_type: 'web_import',
+        importance: 0.9
+      });
+    });
+    if (signals.values?.length > 0) {
+      memoriesToSave.push({
+        content: `Values and beliefs: ${signals.values.join('. ')}`,
+        memory_type: 'values',
+        source_type: 'web_import',
+        importance: 0.98
+      });
+    }
+    if (signals.career_identity) {
+      memoriesToSave.push({
+        content: `Career: ${signals.career_identity}`,
+        memory_type: 'career',
+        source_type: 'web_import',
+        importance: 0.9
+      });
+    }
+    if (signals.speaking_style) {
+      memoriesToSave.push({
+        content: `Speaking style: ${signals.speaking_style}`,
+        memory_type: 'trait',
+        source_type: 'web_import',
+        importance: 0.9
+      });
+    }
+
+    for (const mem of memoriesToSave) {
+      await supabase.from('persona_memories').insert({ persona_id: personaId, ...mem });
+    }
+
+    toast.success(`${memoriesToSave.length} memories imported from web ✓`);
+  }, [personaId, selectedTraits, selectedStyles, signaturePhrases, saveTraitsToDb]);
+
   const saveDeepPersona = async () => {
     if (!personaId) return;
     setSavingDeep(true);
@@ -233,12 +362,11 @@ export function PersonaTraining({
         })
         .eq('id', personaId);
 
-      // ✅ Also save as high-importance memories so they flow into conversations
       const deepMemories = [
-        { text: signaturePhrases, type: 'signature' as Memory['type'], label: 'signature phrases' },
-        { text: storyAnchors, type: 'story' as Memory['type'], label: 'signature stories' },
-        { text: emotionalPatterns, type: 'trait' as Memory['type'], label: 'emotional patterns' },
-        { text: valuesBeliefs, type: 'values' as Memory['type'], label: 'values and beliefs' },
+        { text: signaturePhrases, type: 'signature' as Memory['type'] },
+        { text: storyAnchors, type: 'story' as Memory['type'] },
+        { text: emotionalPatterns, type: 'trait' as Memory['type'] },
+        { text: valuesBeliefs, type: 'values' as Memory['type'] },
       ].filter(m => m.text.trim());
 
       for (const mem of deepMemories) {
@@ -352,60 +480,6 @@ export function PersonaTraining({
     if (memoryRecorderRef.current) {
       memoryRecorderRef.current.stop();
       setIsRecordingMemory(false);
-    }
-  };
-
-  const fetchUrl = async () => {
-    if (!urlInput.trim()) return;
-    setIsFetchingUrl(true);
-    setFetchedUrlContent(null);
-    try {
-      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(urlInput)}`;
-      const response = await fetch(proxyUrl);
-      if (!response.ok) throw new Error('Could not fetch URL');
-      const data = await response.json();
-      const div = document.createElement('div');
-      div.innerHTML = data.contents;
-      const text = (div.innerText || div.textContent || '').replace(/\s+/g, ' ').trim().substring(0, 8000);
-      if (!text) throw new Error('No content found');
-
-      const openAiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${import.meta.env.VITE_OPENAI_API_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o',
-          messages: [{
-            role: 'user',
-            content: `Extract key personality traits, career information, interests, achievements, and personal details from this content. Write it as a warm personal summary capturing who this person is. Only include what's in the content. Content: ${text}`
-          }],
-          max_tokens: 500
-        })
-      });
-
-      if (openAiResponse.ok) {
-        const aiData = await openAiResponse.json();
-        const summary = aiData.choices[0]?.message?.content || '';
-        setFetchedUrlContent(summary);
-        if (personaId && summary) {
-          await supabase.from('persona_memories').insert({
-            persona_id: personaId,
-            content: `From ${urlInput}: ${summary}`,
-            memory_type: 'biography',
-            source_type: 'web',
-            importance: 0.85
-          });
-          toast.success('Content saved automatically ✓');
-        }
-      } else {
-        throw new Error('AI analysis failed');
-      }
-    } catch {
-      toast.error('Could not fetch that URL. Try a different one.');
-    } finally {
-      setIsFetchingUrl(false);
     }
   };
 
@@ -703,10 +777,13 @@ export function PersonaTraining({
           </div>
         </div>
 
+        {/* ── WEB IMPORT (replaces old single URL fetch) ── */}
+        <PersonaScraper onExtracted={applyScrapedSignals} />
+
         {/* Personality Traits */}
         <div className="bg-white rounded-2xl shadow-sm p-8">
           <h3 className="text-lg font-bold text-gray-900 mb-1">How would you describe them?</h3>
-          <p className="text-sm text-gray-500 mb-4">Saves automatically when you tap</p>
+          <p className="text-sm text-gray-500 mb-4">Saves automatically when you tap. Web import above may have pre-selected some.</p>
           <div className="flex flex-wrap gap-2">
             {TRAIT_OPTIONS.map(trait => (
               <button key={trait} onClick={() => toggleTrait(trait)}
@@ -745,6 +822,7 @@ export function PersonaTraining({
           <p className="text-sm text-gray-500 mb-6">
             This is where the AI goes from knowing facts about them to actually sounding like them.
             The more you share here, the more real every conversation will feel.
+            Web import above may have pre-filled some of these fields — review and add to them.
           </p>
 
           {/* 1 — Signature Phrases */}
@@ -946,35 +1024,6 @@ export function PersonaTraining({
                   </button>
                 </div>
               ))}
-            </div>
-          )}
-        </div>
-
-        {/* URL Fetch */}
-        <div className="bg-white rounded-2xl shadow-sm p-8">
-          <h3 className="text-lg font-bold text-gray-900 mb-1">Find them online</h3>
-          <p className="text-sm text-gray-500 mb-1">Paste a link to their LinkedIn, blog, website, or any page about them.</p>
-          <p className="text-xs text-blue-600 mb-4">💡 Tip: Right-click the link and open in a new tab, then copy the URL and paste it here — you won't lose your progress.</p>
-          <div className="flex gap-2 mb-3">
-            <div className="flex-1 relative">
-              <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input type="url" value={urlInput} onChange={(e) => setUrlInput(e.target.value)}
-                placeholder="https://linkedin.com/in/..."
-                className="w-full pl-9 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-sm"
-              />
-            </div>
-            <button onClick={fetchUrl} disabled={!urlInput.trim() || isFetchingUrl}
-              className="px-5 py-3 bg-blue-600 text-white rounded-xl font-semibold text-sm disabled:opacity-40 hover:bg-blue-700 transition-all">
-              {isFetchingUrl ? <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" /> : 'Fetch & Save'}
-            </button>
-          </div>
-          {fetchedUrlContent && (
-            <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <CheckCircle className="h-4 w-4 text-green-600" />
-                <span className="text-sm font-semibold text-green-800">Saved automatically ✓</span>
-              </div>
-              <p className="text-sm text-green-700 line-clamp-4">{fetchedUrlContent}</p>
             </div>
           )}
         </div>
